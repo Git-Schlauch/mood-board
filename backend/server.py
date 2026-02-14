@@ -14,6 +14,7 @@ The default port is **8031**.
 from __future__ import annotations
 
 import argparse
+import base64
 import functools
 import json
 import os
@@ -63,6 +64,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_current_project()
         elif self.path == "/api/projects":
             self._handle_list_projects()
+        elif self.path == "/api/images":
+            self._handle_list_images()
         else:
             super().do_GET()
 
@@ -72,6 +75,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_open_project()
         elif self.path == "/api/projects":
             self._handle_create_project()
+        elif self.path == "/api/images/upload":
+            self._handle_image_upload()
         else:
             self.send_error(404)
 
@@ -149,6 +154,100 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
 
         self.db.set_setting("current_project_id", str(project["id"]))
         self._send_json(project, status=201)
+
+    # -- image handlers ------------------------------------------------------
+
+    def _handle_list_images(self) -> None:
+        """Return all images for the current project as a JSON array.
+
+        ``GET /api/images``
+
+        Fetches the current project and returns its image records ordered
+        by z_index then id.
+        """
+        project = self.db.get_or_create_current_project()
+        images = self.db.list_images(project["id"])
+        self._send_json(images)
+
+    def _handle_image_upload(self) -> None:
+        """Accept a base64-encoded image upload and save it to disk.
+
+        ``POST /api/images/upload``
+
+        Expects a JSON body with ``{"filename": "<string>", "data": "<base64>"}``
+        where *data* is the raw file content encoded as base64.  The file is
+        saved into the current project's directory.  Filename conflicts are
+        resolved by appending a numeric suffix (e.g. ``photo_1.png``).
+
+        Returns the created image database record on success.
+        """
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        filename = body.get("filename")
+        data_b64 = body.get("data")
+
+        if not filename or not data_b64:
+            self._send_json(
+                {"error": "Missing 'filename' or 'data' field"}, status=400
+            )
+            return
+
+        # Decode base64 payload.
+        try:
+            file_bytes = base64.b64decode(data_b64)
+        except Exception:
+            self._send_json({"error": "Invalid base64 data"}, status=400)
+            return
+
+        project = self.db.get_or_create_current_project()
+        project_name: str = project["name"]
+
+        # Sanitise the filename to its basename only.
+        filename = os.path.basename(filename)
+        if not filename:
+            self._send_json({"error": "Invalid filename"}, status=400)
+            return
+
+        # Resolve filename conflicts by appending a numeric suffix.
+        save_name = self._unique_filename(project_name, filename)
+
+        # Ensure the project directory exists and write the file.
+        dest = self.db.get_image_path(project_name, save_name)
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as fh:
+            fh.write(file_bytes)
+
+        # Record in the database.
+        image = self.db.add_image(project["id"], save_name)
+        self._send_json(image, status=201)
+
+    def _unique_filename(self, project_name: str, filename: str) -> str:
+        """Return a filename that does not collide with existing files.
+
+        If *filename* already exists in the project directory a numeric
+        suffix is appended before the extension (e.g. ``photo_1.png``,
+        ``photo_2.png``) until an unused name is found.
+
+        Args:
+            project_name: The project name (used to resolve the directory).
+            filename: The desired filename.
+
+        Returns:
+            A filename guaranteed not to exist in the project directory.
+        """
+        dest = self.db.get_image_path(project_name, filename)
+        if not os.path.exists(dest):
+            return filename
+
+        base, ext = os.path.splitext(filename)
+        counter = 1
+        while True:
+            candidate = f"{base}_{counter}{ext}"
+            if not os.path.exists(self.db.get_image_path(project_name, candidate)):
+                return candidate
+            counter += 1
 
     # -- JSON helpers --------------------------------------------------------
 

@@ -77,6 +77,19 @@ class Sidebar {
 
         this._content.appendChild(this._openBtn);
 
+        /* Image list heading */
+        this._imageHeading = document.createElement("h3");
+        this._imageHeading.className = "sidebar__image-heading";
+        this._imageHeading.textContent = "Images";
+        this._content.appendChild(this._imageHeading);
+
+        /* Image table */
+        this._imageTable = document.createElement("table");
+        this._imageTable.className = "sidebar__image-table";
+        this._imageTableBody = document.createElement("tbody");
+        this._imageTable.appendChild(this._imageTableBody);
+        this._content.appendChild(this._imageTable);
+
         /* Assemble */
         this._el.appendChild(this._header);
         this._el.appendChild(this._content);
@@ -134,9 +147,49 @@ class Sidebar {
         try {
             this.currentProject = await this.api.getCurrentProject();
             this._projectName.textContent = this.currentProject.name;
+            this.refreshImageList();
         } catch (err) {
             console.error("Failed to load current project:", err);
             this._projectName.textContent = "(error)";
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     *  Image list
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Fetch images for the current project and rebuild the sidebar table.
+     *
+     * Clears the existing table body and populates it with one row per
+     * image.  If no images exist a placeholder row is shown instead.
+     * Safe to call at any time — if the API call fails the table is
+     * left empty with an error logged to the console.
+     */
+    async refreshImageList() {
+        this._imageTableBody.innerHTML = "";
+
+        try {
+            const images = await this.api.listImages();
+            if (images.length === 0) {
+                const row = document.createElement("tr");
+                const cell = document.createElement("td");
+                cell.className = "sidebar__image-empty";
+                cell.textContent = "No images yet";
+                row.appendChild(cell);
+                this._imageTableBody.appendChild(row);
+                return;
+            }
+            for (const img of images) {
+                const row = document.createElement("tr");
+                const cell = document.createElement("td");
+                cell.textContent = img.filename;
+                cell.title = img.filename;
+                row.appendChild(cell);
+                this._imageTableBody.appendChild(row);
+            }
+        } catch (err) {
+            console.error("Failed to load image list:", err);
         }
     }
 
@@ -282,6 +335,7 @@ class Sidebar {
             this.currentProject = await this.api.openProject(projectId);
             this._projectName.textContent = this.currentProject.name;
             this.closeProjectDialog();
+            this.refreshImageList();
         } catch (err) {
             console.error("Failed to open project:", err);
             alert("Could not open project: " + err.message);
@@ -302,6 +356,7 @@ class Sidebar {
             this.currentProject = await this.api.createProject(name);
             this._projectName.textContent = this.currentProject.name;
             this.closeProjectDialog();
+            this.refreshImageList();
         } catch (err) {
             console.error("Failed to create project:", err);
             alert("Could not create project: " + err.message);

@@ -2,11 +2,11 @@
 
 Manages all persistent storage for the mood board application using Python's
 built-in :mod:`sqlite3` module.  Provides CRUD operations for projects and
-images, handles schema creation, and manages the ``data/`` directory tree
+images, handles schema creation, and manages the ``projects/`` directory tree
 where uploaded images are stored on the filesystem.
 
-The database file lives at ``data/mood_board.db`` by default.  Each project
-gets its own subdirectory under ``data/<project-name>/images/`` for uploaded
+The database file lives at ``projects/mood_board.db`` by default.  Each project
+gets its own subdirectory under ``projects/<project-name>/`` for uploaded
 image files.
 """
 
@@ -65,9 +65,9 @@ class Database:
     """Manages the SQLite database for mood board projects and images.
 
     Handles connection lifecycle, schema creation, and all CRUD operations.
-    The database file is stored at ``data/mood_board.db`` relative to the
+    The database file is stored at ``projects/mood_board.db`` relative to the
     project root.  Project image directories live under
-    ``data/<project>/images/``.
+    ``projects/<project>/``.
 
     The constructor accepts an optional *db_path* override so that tests can
     pass ``\":memory:\"`` or a temporary file path without touching the real
@@ -78,14 +78,14 @@ class Database:
         """Initialise the database manager.
 
         When *db_path* is ``None`` the default location
-        ``data/mood_board.db`` (relative to the project root) is used and
-        the ``data/`` directory is created if it does not already exist.
+        ``projects/mood_board.db`` (relative to the project root) is used and
+        the ``projects/`` directory is created if it does not already exist.
 
         Args:
             db_path: Optional override for the database file path.
         """
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self._data_dir: str = os.path.join(project_root, "data")
+        self._data_dir: str = os.path.join(project_root, "projects")
 
         if db_path is None:
             os.makedirs(self._data_dir, exist_ok=True)
@@ -221,7 +221,7 @@ class Database:
         """Create a new project and its image directory on disk.
 
         Inserts a row into the ``projects`` table and creates the directory
-        ``data/<name>/images/`` on the filesystem.
+        ``projects/<name>/`` on the filesystem.
 
         Args:
             name: The project name.  Must be unique and contain only
@@ -331,12 +331,7 @@ class Database:
         old_dir = self._image_dir(old_name)
         new_dir = self._image_dir(new_name)
         if os.path.isdir(old_dir):
-            # Ensure the parent of the new directory exists.
-            os.makedirs(os.path.dirname(new_dir), exist_ok=True)
-            os.rename(
-                os.path.dirname(old_dir),  # data/<old_name>
-                os.path.dirname(new_dir),  # data/<new_name>
-            )
+            os.rename(old_dir, new_dir)
         else:
             # No existing directory — just create the new one.
             os.makedirs(new_dir, exist_ok=True)
@@ -508,9 +503,9 @@ class Database:
             project_name: The project name.
 
         Returns:
-            Absolute path, e.g. ``/path/to/data/my-project/images``.
+            Absolute path, e.g. ``/path/to/projects/my-project``.
         """
-        return os.path.join(self._data_dir, project_name, "images")
+        return os.path.join(self._data_dir, project_name)
 
     def get_image_path(self, project_name: str, filename: str) -> str:
         """Return the full filesystem path for an image file.
@@ -521,7 +516,7 @@ class Database:
 
         Returns:
             Absolute path, e.g.
-            ``/path/to/data/my-project/images/photo.png``.
+            ``/path/to/projects/my-project/photo.png``.
         """
         return os.path.join(self._image_dir(project_name), filename)
 

@@ -134,6 +134,44 @@ body {
     background-color: #3a3a5a;
 }
 
+/* Image list heading */
+.sidebar__image-heading {
+    margin-top: 16px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #8a8aaa;
+}
+
+/* Image table */
+.sidebar__image-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.sidebar__image-table td {
+    padding: 5px 6px;
+    border-bottom: 1px solid #2a2a4a;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 240px;
+}
+
+.sidebar__image-empty {
+    color: #6a6a8a;
+    font-style: italic;
+}
+
+/* Canvas drag-over visual feedback */
+.canvas--dragover {
+    outline: 3px dashed #0f3460;
+    outline-offset: -3px;
+}
+
 /* ===================================================================
    Dialog overlay & box
    =================================================================== */

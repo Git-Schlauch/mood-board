@@ -1,0 +1,44 @@
+Phase 4: Image Upload & Storage Refactor
+
+MODIFIED: backend/database.py
+  - Changed _data_dir from "data" to "projects"
+  - Flattened _image_dir to drop "/images" sub-directory (now projects/<name>/ directly)
+  - Fixed rename_project to move flat directory instead of parent dir
+  - Updated docstrings to reflect new paths
+
+MODIFIED: backend/server.py
+  - Added import for base64 module
+  - Added GET /api/images route → _handle_list_images()
+  - Added POST /api/images/upload route → _handle_image_upload()
+  - Added _unique_filename() helper for conflict resolution
+  - Image upload uses base64 JSON approach (no multipart parsing needed)
+
+MODIFIED: web/js/api.js
+  - Added uploadImage(file) method — reads File as base64, POSTs to /api/images/upload
+  - Added listImages() method — GETs /api/images
+  - Added _readFileAsBase64(file) private helper using FileReader
+
+CREATED: web/js/canvas.js
+  - CanvasController class with drag-and-drop event handling
+  - Filters dropped files to images only
+  - Uploads each image via ApiClient and calls onUploadComplete callback
+
+MODIFIED: web/js/sidebar.js
+  - Added image heading and table elements to _buildDOM()
+  - Added refreshImageList() method — fetches and rebuilds image table
+  - Wired refreshImageList() into _loadCurrentProject(), _onOpenProject(), _onCreateProject()
+
+MODIFIED: web/css/style.css
+  - Added .sidebar__image-heading styles
+  - Added .sidebar__image-table and td styles (compact, truncated text)
+  - Added .sidebar__image-empty placeholder style
+  - Added .canvas--dragover visual feedback (dashed outline)
+
+MODIFIED: web/index.html
+  - Added canvas.js script tag
+  - Updated bootstrap to create CanvasController wired to sidebar.refreshImageList()
+
+MODIFIED: .gitignore
+  - Replaced "data/" with "projects/"
+
+Agent: Opus 4.6
