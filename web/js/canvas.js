@@ -454,6 +454,8 @@ class CanvasController {
                     console.error("Failed to persist image resize:", err);
                 });
             }
+            /* Re-render so the action panel reappears after resize. */
+            this._scheduleRender();
             return;
         }
 
@@ -474,6 +476,9 @@ class CanvasController {
                 console.error("Failed to persist image position:", err);
             });
         }
+
+        /* Re-render so the action panel reappears after drag. */
+        this._scheduleRender();
     }
 
     /**

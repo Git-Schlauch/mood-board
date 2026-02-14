@@ -1,0 +1,11 @@
+Fix action panel not appearing after selecting an image
+
+Modified files:
+- web/js/canvas.js: Added _scheduleRender() calls at the end of both the resize
+  and drag completion branches in _onMouseUp(). The panel was never becoming visible
+  because mousedown sets _dragging=true before the scheduled render fires (via
+  requestAnimationFrame), so _updateActionPanelPosition() always saw _dragging as
+  true and hid the panel. On mouseup, _dragging was cleared but no re-render was
+  triggered, so the panel stayed hidden.
+
+Agent: Opus 4.6
