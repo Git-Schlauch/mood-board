@@ -1,0 +1,15 @@
+Updated CLAUDE.md to reflect current project state.
+
+Changes:
+- Modified: CLAUDE.md
+  - Rewrote Project Overview to describe actual implemented features (canvas with
+    pan/zoom/drag/resize/selection, sidebar overlay, action panel, API client)
+  - Added Frontend and Backend subsections with file-level detail
+  - Added "Running the server" section with startup command
+  - Updated Project Structure tree: fixed root name from "tree-gen/" to "mood_board/",
+    marked index.html as existing, listed actual JS files (api.js, canvas.js, sidebar.js),
+    listed actual backend files (server.py, database.py), added data/ directory,
+    added pyproject.toml
+  - Updated Development Workflow to reference web/js/*.js instead of just script.js
+
+Agent: Opus 4.6

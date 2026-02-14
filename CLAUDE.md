@@ -4,36 +4,69 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This project is split into a browser-based fronted and a python run backend.
+Mood Board is a browser-based image arrangement tool with a Python backend. Users can
+create projects, drag images onto an HTML canvas, and arrange them freely — moving,
+resizing, and reordering images. All state is persisted per-project in an SQLite database.
 
-The frontend is html based, utilizing a canvas element and javascript. It uses a canvas element to display multiple images that have been uploaded by the user.
-The user can zoom in and out, move the whole scene and also move individual images, scale images, and rotate them. A sidebar (that can be minimized) provides a
-list of images that have been uploaded, and has a text input control to set the project name. A "load project" dialog allows to load a project that has preivously
-been created.
+### Frontend
 
-The task of the backend is to deliver the web pages, and to save any images that have been dragged into the canvas. All data is saved per-project. A database
-organizes any relevant data like position and scaling of images.
+Built with plain HTML, CSS, and JavaScript (no frameworks). The UI consists of:
+
+- **Canvas** (`web/js/canvas.js`) — renders images, handles pan/zoom, drag-to-move,
+  resize handles, and selection.
+- **Sidebar** (`web/js/sidebar.js`) — collapsible overlay listing uploaded images,
+  a project name field, and a "load project" dialog.
+- **API client** (`web/js/api.js`) — thin wrapper around `fetch` for backend calls.
+- **Action panel** — floating controls for z-order (bring forward / send back) and
+  delete, shown when an image is selected.
+
+### Backend
+
+A zero-dependency Python HTTP server (`backend/server.py`) using the stdlib
+`http.server` module. It serves static files from `web/` and exposes a JSON API for
+project CRUD and image upload/storage. Data lives under `data/<project-name>/` on disk;
+metadata (positions, z-order, dimensions) is kept in `data/mood_board.db` via a thin
+SQLite layer (`backend/database.py`).
+
+### Running the server
+
+```bash
+python backend/server.py [--port PORT]   # default port: 8031
+```
+
+Then open `http://localhost:8031` in a browser.
 
 ## Project Structure
 
 ```
-tree-gen/
-├── web/                # Frontend files
-│   ├── index.html      # Main HTML file (to be created)
-│   ├── css/            # CSS stylesheets
-│   └── js/             # JavaScript modules
-├── backend/            # Backend Python code
-├── docs/               # Project documentation
-│   ├── frontend/       # Frontend documentation
-│   └── backend/        # Backend documentation
-├── claude-log/         # Timestamped edit logs
-└── CLAUDE.md           # This file
+mood_board/
+├── web/                    # Frontend files
+│   ├── index.html          # Main HTML page
+│   ├── css/
+│   │   └── style.css       # All styles
+│   └── js/
+│       ├── api.js           # Backend API client
+│       ├── canvas.js        # Canvas rendering & interaction
+│       └── sidebar.js       # Sidebar UI & project dialog
+├── backend/                # Backend Python code
+│   ├── server.py           # HTTP server & API routes
+│   └── database.py         # SQLite database layer
+├── data/                   # Runtime data (not committed)
+│   ├── mood_board.db       # SQLite database
+│   └── <project-name>/    # Uploaded images per project
+├── docs/                   # Project documentation (markdown)
+│   ├── frontend/
+│   └── backend/
+│       └── database.md
+├── claude-log/             # Timestamped edit logs
+├── pyproject.toml          # Python project metadata (uv)
+└── CLAUDE.md               # This file
 ```
 
 ## Development Workflow
 
 All changes should be:
-1. Made to the appropriate file (`web/index.html`, `web/css/style.css`, or `web/js/script.js`)
+1. Made to the appropriate file (`web/index.html`, `web/css/style.css`, or `web/js/*.js`)
 2. Logged in a new timestamped file in `claude-log/` folder
 3. Committed to the `dev-claude` branch with descriptive commit messages
 
