@@ -51,8 +51,21 @@ class CanvasController {
         /** @type {boolean} Whether a render has been scheduled. */
         this._renderScheduled = false;
 
+        /** @type {Object|null} The currently selected canvas item. */
+        this._selectedItem = null;
+
+        /** @type {boolean} Whether the user is dragging a selected image. */
+        this._dragging = false;
+
+        /** @type {number} Offset from cursor to item origin at drag start. */
+        this._dragOffsetX = 0;
+
+        /** @type {number} Offset from cursor to item origin at drag start. */
+        this._dragOffsetY = 0;
+
         this._syncCanvasSize();
         this._bindDragEvents();
+        this._bindMouseEvents();
         this._bindResizeEvent();
         this._scheduleRender();
     }
@@ -125,7 +138,191 @@ class CanvasController {
             } else if (item.type === "image" && item.img) {
                 ctx.drawImage(item.img, item.x, item.y, item.width, item.height);
             }
+
+            /* Draw selection outline for the selected item. */
+            if (item === this._selectedItem) {
+                this._drawSelectionOutline(item);
+            }
         }
+    }
+
+    /**
+     * Draw a black-and-white dashed outline around a canvas item.
+     *
+     * Two passes are used: first a black dashed stroke, then a white
+     * dashed stroke offset by the dash length.  This creates an
+     * alternating black/white pattern that is visible against any
+     * background colour.
+     *
+     * @param {Object} item - The canvas item to outline.
+     * @private
+     */
+    _drawSelectionOutline(item) {
+        const { ctx } = this;
+        const pad = 2;
+        const x = item.x - pad;
+        const y = item.y - pad;
+        const w = item.width + pad * 2;
+        const h = item.height + pad * 2;
+        const dashLen = 6;
+
+        ctx.save();
+        ctx.lineWidth = 2;
+
+        /* Black dashes. */
+        ctx.strokeStyle = "#000000";
+        ctx.setLineDash([dashLen, dashLen]);
+        ctx.lineDashOffset = 0;
+        ctx.strokeRect(x, y, w, h);
+
+        /* White dashes offset to fill the gaps. */
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineDashOffset = dashLen;
+        ctx.strokeRect(x, y, w, h);
+
+        ctx.restore();
+    }
+
+    /* ------------------------------------------------------------------
+     *  Selection & mouse interaction
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Bind mousedown, mousemove, and mouseup listeners for selection
+     * and dragging of canvas items.
+     *
+     * Mousedown performs a hit-test (topmost first) and selects the
+     * item under the cursor.  Holding the left button down and moving
+     * the mouse drags the selected image.  Mouseup finishes the drag
+     * and persists the new position to the database.
+     * @private
+     */
+    _bindMouseEvents() {
+        this.canvas.addEventListener("mousedown", (e) => this._onMouseDown(e));
+        this.canvas.addEventListener("mousemove", (e) => this._onMouseMove(e));
+        this.canvas.addEventListener("mouseup", (e) => this._onMouseUp(e));
+    }
+
+    /**
+     * Handle mousedown: select the topmost image under the cursor.
+     *
+     * Iterates items in reverse order (last = topmost) and selects the
+     * first one whose bounding box contains the click position.  If no
+     * item is hit the selection is cleared.  Only fully loaded images
+     * are selectable (placeholders are ignored).
+     *
+     * @param {MouseEvent} event - The native mousedown event.
+     * @private
+     */
+    _onMouseDown(event) {
+        if (event.button !== 0) {
+            return;
+        }
+
+        const { x, y } = this._canvasCoords(event);
+        const hit = this._hitTest(x, y);
+
+        this._selectedItem = hit;
+        this._scheduleRender();
+
+        if (hit) {
+            this._dragging = true;
+            this._dragOffsetX = x - hit.x;
+            this._dragOffsetY = y - hit.y;
+            this.canvas.style.cursor = "grabbing";
+        }
+    }
+
+    /**
+     * Handle mousemove: reposition the selected item while dragging.
+     *
+     * @param {MouseEvent} event - The native mousemove event.
+     * @private
+     */
+    _onMouseMove(event) {
+        if (!this._dragging || !this._selectedItem) {
+            /* Update cursor style based on hover. */
+            const { x, y } = this._canvasCoords(event);
+            const hover = this._hitTest(x, y);
+            this.canvas.style.cursor = hover ? "grab" : "default";
+            return;
+        }
+
+        const { x, y } = this._canvasCoords(event);
+        this._selectedItem.x = x - this._dragOffsetX;
+        this._selectedItem.y = y - this._dragOffsetY;
+        this._scheduleRender();
+    }
+
+    /**
+     * Handle mouseup: finish dragging and persist the new position.
+     *
+     * @param {MouseEvent} event - The native mouseup event.
+     * @private
+     */
+    _onMouseUp(event) {
+        if (event.button !== 0 || !this._dragging) {
+            return;
+        }
+
+        const item = this._selectedItem;
+        this._dragging = false;
+        this.canvas.style.cursor = item ? "grab" : "default";
+
+        /* Persist the new position if the item has a database record. */
+        if (item && item.imageRecord) {
+            this.api.updateImage(item.imageRecord.id, {
+                pos_x: item.x,
+                pos_y: item.y,
+            }).catch((err) => {
+                console.error("Failed to persist image position:", err);
+            });
+        }
+    }
+
+    /**
+     * Convert a mouse event to canvas-relative coordinates.
+     *
+     * @param {MouseEvent} event - The mouse event.
+     * @returns {{ x: number, y: number }} Canvas-relative position.
+     * @private
+     */
+    _canvasCoords(event) {
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+        };
+    }
+
+    /**
+     * Find the topmost loaded image at the given canvas coordinates.
+     *
+     * Iterates the items array in reverse (last item = topmost) and
+     * returns the first image-type item whose bounding box contains
+     * the point.  Placeholders are not selectable.
+     *
+     * @param {number} x - The X coordinate to test.
+     * @param {number} y - The Y coordinate to test.
+     * @returns {Object|null} The hit item, or null if nothing was hit.
+     * @private
+     */
+    _hitTest(x, y) {
+        for (let i = this._items.length - 1; i >= 0; i--) {
+            const item = this._items[i];
+            if (item.type !== "image") {
+                continue;
+            }
+            if (
+                x >= item.x &&
+                x <= item.x + item.width &&
+                y >= item.y &&
+                y <= item.y + item.height
+            ) {
+                return item;
+            }
+        }
+        return null;
     }
 
     /* ------------------------------------------------------------------
@@ -349,6 +546,8 @@ class CanvasController {
      */
     clear() {
         this._items = [];
+        this._selectedItem = null;
+        this._dragging = false;
         this._scheduleRender();
     }
 

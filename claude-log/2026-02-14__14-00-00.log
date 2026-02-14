@@ -1,0 +1,18 @@
+Image selection and drag-to-move on canvas
+
+MODIFIED: web/js/canvas.js
+  - Added selection state: _selectedItem, _dragging, _dragOffsetX/Y
+  - Added _bindMouseEvents() with mousedown, mousemove, mouseup handlers
+  - mousedown: hit-tests items in reverse order (topmost first), selects image
+  - mousemove: repositions selected item while dragging, updates cursor style
+  - mouseup: ends drag and persists new position via api.updateImage()
+  - Added _drawSelectionOutline(): two-pass dashed stroke (black then white
+    offset by dash length) for alternating black/white dashed border
+  - Added _hitTest(x, y): reverse iteration over items, checks bounding box,
+    only selects loaded images (not placeholders)
+  - Added _canvasCoords(event): converts mouse event to canvas-relative coords
+  - Updated _render() to draw selection outline on selected item
+  - Updated clear() to reset selection and drag state
+  - Cursor changes: "grab" on hover, "grabbing" while dragging, "default" elsewhere
+
+Agent: Opus 4.6
