@@ -24,6 +24,7 @@
             api,
             {
                 onUploadComplete: () => sidebar.refreshImageList(),
+                onChange: () => sidebar.refreshImageList(),
                 getProjectName: () => sidebar.currentProject
                     ? sidebar.currentProject.name
                     : "Untitled Project",

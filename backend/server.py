@@ -83,6 +83,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_image_upload()
         elif self.path == "/api/images/update":
             self._handle_image_update()
+        elif self.path == "/api/images/delete":
+            self._handle_image_delete()
         else:
             self.send_error(404)
 
@@ -290,6 +292,49 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
 
         image = self.db.get_image(int(image_id))
         self._send_json(image)
+
+    def _handle_image_delete(self) -> None:
+        """Delete an image record and its file from disk.
+
+        ``POST /api/images/delete``
+
+        Expects a JSON body with ``{"image_id": <int>}``.  Removes the
+        database record first, then attempts to delete the corresponding
+        file from disk.  Returns a success message on success, or 404 if
+        the image does not exist.
+        """
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        image_id = body.get("image_id")
+        if image_id is None:
+            self._send_json({"error": "Missing image_id"}, status=400)
+            return
+
+        # Fetch the image record before deleting so we know the filename.
+        image = self.db.get_image(int(image_id))
+        if image is None:
+            self._send_json({"error": "Image not found"}, status=404)
+            return
+
+        # Delete from database.
+        self.db.delete_image(int(image_id))
+
+        # Delete file from disk.
+        project = self.db.get_project(image["project_id"])
+        if project:
+            file_path = self.db.get_image_path(project["name"], image["filename"])
+            if os.path.isfile(file_path):
+                try:
+                    os.remove(file_path)
+                except OSError as exc:
+                    # Log but don't fail — the DB record is already gone.
+                    sys.stderr.write(
+                        f"Warning: could not delete file {file_path}: {exc}\n"
+                    )
+
+        self._send_json({"success": True})
 
     def _handle_serve_image(self) -> None:
         """Serve an uploaded image file from the projects directory.

@@ -21,6 +21,8 @@ class CanvasController {
      *     each individual image upload completes (e.g. to refresh sidebar).
      * @param {Function} [options.getProjectName] - Returns the current
      *     project name, used to build image URLs.
+     * @param {Function} [options.onChange] - Callback invoked after any
+     *     canvas change (z-order, delete) that the sidebar should reflect.
      */
     constructor(canvas, api, options = {}) {
         /** @type {HTMLCanvasElement} */
@@ -34,6 +36,9 @@ class CanvasController {
 
         /** @type {Function|null} */
         this._onUploadComplete = options.onUploadComplete || null;
+
+        /** @type {Function|null} */
+        this._onChange = options.onChange || null;
 
         /** @type {Function|null} */
         this._getProjectName = options.getProjectName || null;
@@ -88,6 +93,7 @@ class CanvasController {
         this._resizeStartItemY = 0;
 
         this._syncCanvasSize();
+        this._buildActionPanel();
         this._bindDragEvents();
         this._bindMouseEvents();
         this._bindResizeEvent();
@@ -168,6 +174,8 @@ class CanvasController {
                 this._drawSelectionOutline(item);
             }
         }
+
+        this._updateActionPanelPosition();
     }
 
     /**
@@ -774,6 +782,235 @@ class CanvasController {
     }
 
     /* ------------------------------------------------------------------
+     *  Action panel (z-order & delete)
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Build the floating action panel DOM and append it to the canvas container.
+     *
+     * Creates a hidden div with five buttons: move-to-top, move-up,
+     * move-down, move-to-bottom, and delete.  The panel is positioned
+     * absolutely within #canvas-container and shown/hidden dynamically
+     * based on the current selection state.
+     * @private
+     */
+    _buildActionPanel() {
+        this._actionPanel = document.createElement("div");
+        this._actionPanel.className = "canvas-actions canvas-actions--hidden";
+
+        const buttons = [
+            { label: "\u21C8",  title: "Move to top",    action: () => this._moveToTop() },
+            { label: "\u2191",  title: "Move up",        action: () => this._moveUp() },
+            { label: "\u2193",  title: "Move down",      action: () => this._moveDown() },
+            { label: "\u21CA",  title: "Move to bottom", action: () => this._moveToBottom() },
+        ];
+
+        for (const def of buttons) {
+            const btn = document.createElement("button");
+            btn.className = "canvas-actions__btn";
+            btn.textContent = def.label;
+            btn.title = def.title;
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                def.action();
+            });
+            this._actionPanel.appendChild(btn);
+        }
+
+        /* Visual separator before the delete button. */
+        const sep = document.createElement("div");
+        sep.className = "canvas-actions__separator";
+        this._actionPanel.appendChild(sep);
+
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "canvas-actions__btn canvas-actions__btn--delete";
+        deleteBtn.textContent = "\uD83D\uDDD1";  /* 🗑 */
+        deleteBtn.title = "Delete image";
+        deleteBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this._deleteSelected();
+        });
+        this._actionPanel.appendChild(deleteBtn);
+
+        this.canvas.parentElement.appendChild(this._actionPanel);
+    }
+
+    /**
+     * Position the action panel above the selected item.
+     *
+     * Converts the item's canvas-buffer coordinates to CSS pixels
+     * (accounting for any scaling between the buffer and CSS layout),
+     * then places the panel centred above the item with a small gap.
+     * Hides the panel if nothing is selected or an interaction is active.
+     * @private
+     */
+    _updateActionPanelPosition() {
+        if (!this._selectedItem || this._dragging || this._resizing) {
+            this._actionPanel.classList.add("canvas-actions--hidden");
+            return;
+        }
+
+        this._actionPanel.classList.remove("canvas-actions--hidden");
+
+        const rect = this.canvas.getBoundingClientRect();
+        const scaleX = rect.width / this.canvas.width;
+        const scaleY = rect.height / this.canvas.height;
+
+        const item = this._selectedItem;
+        const itemCenterCss = item.x * scaleX + (item.width * scaleX) / 2;
+        const itemTopCss = item.y * scaleY;
+
+        /* Measure panel so we can centre it. */
+        const panelW = this._actionPanel.offsetWidth;
+        const panelH = this._actionPanel.offsetHeight;
+        const gap = 6;
+
+        let left = itemCenterCss - panelW / 2;
+        let top = itemTopCss - panelH - gap;
+
+        /* Clamp to stay within the container. */
+        left = Math.max(0, Math.min(left, rect.width - panelW));
+        top = Math.max(0, top);
+
+        this._actionPanel.style.left = left + "px";
+        this._actionPanel.style.top = top + "px";
+    }
+
+    /**
+     * Move the selected item to the top of the draw order.
+     *
+     * Moves the item to the end of the _items array and reassigns
+     * sequential z_index values to all items, then persists the
+     * changes to the backend.
+     * @private
+     */
+    _moveToTop() {
+        const item = this._selectedItem;
+        if (!item) return;
+
+        const idx = this._items.indexOf(item);
+        if (idx === -1 || idx === this._items.length - 1) return;
+
+        this._items.splice(idx, 1);
+        this._items.push(item);
+        this._reassignZIndices();
+        this._scheduleRender();
+    }
+
+    /**
+     * Move the selected item one step up in the draw order.
+     *
+     * Swaps the item with the one above it in the _items array and
+     * persists both z_index values.
+     * @private
+     */
+    _moveUp() {
+        const item = this._selectedItem;
+        if (!item) return;
+
+        const idx = this._items.indexOf(item);
+        if (idx === -1 || idx === this._items.length - 1) return;
+
+        /* Swap with the item above (next in array = drawn later). */
+        [this._items[idx], this._items[idx + 1]] =
+            [this._items[idx + 1], this._items[idx]];
+        this._reassignZIndices();
+        this._scheduleRender();
+    }
+
+    /**
+     * Move the selected item one step down in the draw order.
+     *
+     * Swaps the item with the one below it in the _items array and
+     * persists both z_index values.
+     * @private
+     */
+    _moveDown() {
+        const item = this._selectedItem;
+        if (!item) return;
+
+        const idx = this._items.indexOf(item);
+        if (idx <= 0) return;
+
+        /* Swap with the item below (previous in array = drawn earlier). */
+        [this._items[idx], this._items[idx - 1]] =
+            [this._items[idx - 1], this._items[idx]];
+        this._reassignZIndices();
+        this._scheduleRender();
+    }
+
+    /**
+     * Move the selected item to the bottom of the draw order.
+     *
+     * Moves the item to the start of the _items array and reassigns
+     * sequential z_index values to all items.
+     * @private
+     */
+    _moveToBottom() {
+        const item = this._selectedItem;
+        if (!item) return;
+
+        const idx = this._items.indexOf(item);
+        if (idx <= 0) return;
+
+        this._items.splice(idx, 1);
+        this._items.unshift(item);
+        this._reassignZIndices();
+        this._scheduleRender();
+    }
+
+    /**
+     * Reassign sequential z_index values (0, 1, 2, ...) to all items.
+     *
+     * Persists each updated z_index to the backend and triggers the
+     * onChange callback so the sidebar can refresh its image list.
+     * @private
+     */
+    _reassignZIndices() {
+        for (let i = 0; i < this._items.length; i++) {
+            const it = this._items[i];
+            if (it.imageRecord) {
+                it.imageRecord.z_index = i;
+                this.api.updateImage(it.imageRecord.id, { z_index: i })
+                    .catch((err) => {
+                        console.error("Failed to update z_index:", err);
+                    });
+            }
+        }
+        if (this._onChange) {
+            this._onChange();
+        }
+    }
+
+    /**
+     * Delete the currently selected image from the canvas and backend.
+     *
+     * Removes the item from the _items array, calls the delete API,
+     * clears the selection, and notifies listeners.
+     * @private
+     */
+    _deleteSelected() {
+        const item = this._selectedItem;
+        if (!item || !item.imageRecord) return;
+
+        const idx = this._items.indexOf(item);
+        if (idx !== -1) {
+            this._items.splice(idx, 1);
+        }
+        this._selectedItem = null;
+
+        this.api.deleteImage(item.imageRecord.id)
+            .catch((err) => {
+                console.error("Failed to delete image:", err);
+            });
+
+        this._scheduleRender();
+        if (this._onChange) {
+            this._onChange();
+        }
+    }
+
+    /* ------------------------------------------------------------------
      *  Project switching
      * ------------------------------------------------------------------ */
 
@@ -789,6 +1026,7 @@ class CanvasController {
         this._dragging = false;
         this._resizing = false;
         this._resizeCorner = null;
+        this._actionPanel.classList.add("canvas-actions--hidden");
         this._syncCanvasSize();
         this._scheduleRender();
     }

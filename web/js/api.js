@@ -112,6 +112,24 @@ class ApiClient {
     }
 
     /**
+     * Delete an image from the current project.
+     *
+     * Sends the image ID to the backend which removes the database record
+     * and deletes the file from disk.
+     *
+     * @param {number} imageId - The image record ID.
+     * @returns {Promise<Object>} A success confirmation object.
+     */
+    async deleteImage(imageId) {
+        const response = await fetch("/api/images/delete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_id: imageId }),
+        });
+        return this._handleResponse(response);
+    }
+
+    /**
      * Read a File object as a base64-encoded string (data portion only).
      *
      * Uses FileReader to convert the file contents to a base64 string,

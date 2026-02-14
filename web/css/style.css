@@ -22,6 +22,7 @@ html, body {
 
 /* Canvas container — always fills the full viewport. */
 #canvas-container {
+    position: relative;
     width: 100%;
     height: 100%;
 }
@@ -159,6 +160,59 @@ html, body {
 .sidebar__image-empty {
     color: #6a6a8a;
     font-style: italic;
+}
+
+/* ===================================================================
+   Canvas action panel (z-order & delete)
+   =================================================================== */
+
+.canvas-actions {
+    position: absolute;
+    display: flex;
+    gap: 2px;
+    padding: 3px;
+    background-color: rgba(26, 26, 46, 0.85);
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+    pointer-events: auto;
+    z-index: 50;
+    white-space: nowrap;
+}
+
+.canvas-actions--hidden {
+    display: none;
+}
+
+.canvas-actions__btn {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    background-color: #2a2a4a;
+    color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s;
+    line-height: 1;
+}
+
+.canvas-actions__btn:hover {
+    background-color: #3a3a5a;
+}
+
+.canvas-actions__btn--delete:hover {
+    background-color: #6b2020;
+    border-color: #8b3030;
+}
+
+.canvas-actions__separator {
+    width: 1px;
+    background-color: #3a3a5a;
+    margin: 2px 1px;
 }
 
 /* Canvas drag-over visual feedback */

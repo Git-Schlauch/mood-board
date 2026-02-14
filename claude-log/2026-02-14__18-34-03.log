@@ -1,0 +1,20 @@
+Image Action Panel (Z-Order & Delete)
+
+Modified files:
+- backend/server.py: Added POST /api/images/delete endpoint with _handle_image_delete() handler.
+  Deletes image record from database and removes file from disk.
+- web/js/api.js: Added deleteImage(imageId) method to ApiClient.
+- web/css/style.css: Added .canvas-actions panel styles (positioned absolutely, dark semi-transparent
+  background, compact buttons with hover states, separator before delete button, red hover on delete).
+  Added position:relative to #canvas-container for absolute positioning context.
+- web/js/canvas.js: Added floating HTML overlay action panel with 5 buttons:
+  - Move to top (⇈), Move up (↑), Move down (↓), Move to bottom (⇊), Delete (🗑)
+  - Panel built in _buildActionPanel(), positioned in _updateActionPanelPosition()
+  - Z-order methods: _moveToTop(), _moveUp(), _moveDown(), _moveToBottom()
+  - _reassignZIndices() persists sequential z_index values to backend
+  - _deleteSelected() removes item and calls delete API
+  - Panel hidden during drag/resize and when nothing selected
+  - Added onChange callback option for notifying sidebar of changes
+- web/index.html: Wired onChange callback to sidebar.refreshImageList()
+
+Agent: Opus 4.6
