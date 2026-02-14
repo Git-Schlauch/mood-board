@@ -199,8 +199,11 @@ class CanvasController {
      */
     _bindMouseEvents() {
         this.canvas.addEventListener("mousedown", (e) => this._onMouseDown(e));
-        this.canvas.addEventListener("mousemove", (e) => this._onMouseMove(e));
-        this.canvas.addEventListener("mouseup", (e) => this._onMouseUp(e));
+
+        /* Bind mousemove and mouseup on the window so dragging continues
+           even when the cursor leaves the canvas boundaries. */
+        window.addEventListener("mousemove", (e) => this._onMouseMove(e));
+        window.addEventListener("mouseup", (e) => this._onMouseUp(e));
     }
 
     /**
@@ -226,6 +229,10 @@ class CanvasController {
         this._scheduleRender();
 
         if (hit) {
+            /* Prevent the browser from starting a native drag or text
+               selection — without this, mousemove events get swallowed. */
+            event.preventDefault();
+
             this._dragging = true;
             this._dragOffsetX = x - hit.x;
             this._dragOffsetY = y - hit.y;
@@ -241,10 +248,13 @@ class CanvasController {
      */
     _onMouseMove(event) {
         if (!this._dragging || !this._selectedItem) {
-            /* Update cursor style based on hover. */
-            const { x, y } = this._canvasCoords(event);
-            const hover = this._hitTest(x, y);
-            this.canvas.style.cursor = hover ? "grab" : "default";
+            /* Update cursor style based on hover — only when the event
+               target is actually the canvas (listener is on window). */
+            if (event.target === this.canvas) {
+                const { x, y } = this._canvasCoords(event);
+                const hover = this._hitTest(x, y);
+                this.canvas.style.cursor = hover ? "grab" : "default";
+            }
             return;
         }
 

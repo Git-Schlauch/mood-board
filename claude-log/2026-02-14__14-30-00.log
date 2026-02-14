@@ -1,0 +1,12 @@
+Fix image selection and dragging not working on canvas
+
+MODIFIED: web/js/canvas.js
+  - Added event.preventDefault() in _onMouseDown when an image is hit,
+    preventing the browser from initiating a native drag operation that
+    was swallowing all subsequent mousemove events
+  - Moved mousemove and mouseup listeners from canvas to window so
+    dragging continues even when cursor leaves the canvas boundaries
+  - Updated _onMouseMove hover cursor logic to only run when event
+    target is the canvas (since listener is now on window)
+
+Agent: Opus 4.6
