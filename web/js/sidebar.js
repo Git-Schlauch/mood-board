@@ -14,8 +14,13 @@ class Sidebar {
      * displays its name in the sidebar header.
      *
      * @param {ApiClient} api - The API client for backend communication.
+     * @param {Object} [options] - Configuration options.
+     * @param {Function} [options.onProjectChange] - Callback invoked
+     *     whenever the active project changes (open, create, or initial
+     *     load).  Receives no arguments — the caller should read
+     *     ``sidebar.currentProject`` for the new project.
      */
-    constructor(api) {
+    constructor(api, options = {}) {
         /** @type {ApiClient} */
         this.api = api;
 
@@ -27,6 +32,9 @@ class Sidebar {
 
         /** @type {HTMLElement|null} The dialog overlay element. */
         this._dialogOverlay = null;
+
+        /** @type {Function|null} */
+        this._onProjectChange = options.onProjectChange || null;
 
         this._buildDOM();
         this._bindEvents();
@@ -148,6 +156,9 @@ class Sidebar {
             this.currentProject = await this.api.getCurrentProject();
             this._projectName.textContent = this.currentProject.name;
             this.refreshImageList();
+            if (this._onProjectChange) {
+                this._onProjectChange();
+            }
         } catch (err) {
             console.error("Failed to load current project:", err);
             this._projectName.textContent = "(error)";
@@ -336,6 +347,9 @@ class Sidebar {
             this._projectName.textContent = this.currentProject.name;
             this.closeProjectDialog();
             this.refreshImageList();
+            if (this._onProjectChange) {
+                this._onProjectChange();
+            }
         } catch (err) {
             console.error("Failed to open project:", err);
             alert("Could not open project: " + err.message);
@@ -357,6 +371,9 @@ class Sidebar {
             this._projectName.textContent = this.currentProject.name;
             this.closeProjectDialog();
             this.refreshImageList();
+            if (this._onProjectChange) {
+                this._onProjectChange();
+            }
         } catch (err) {
             console.error("Failed to create project:", err);
             alert("Could not create project: " + err.message);

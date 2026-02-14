@@ -17,9 +17,11 @@ import argparse
 import base64
 import functools
 import json
+import mimetypes
 import os
 import sqlite3
 import sys
+import urllib.parse
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from typing import Any
 
@@ -66,6 +68,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_list_projects()
         elif self.path == "/api/images":
             self._handle_list_images()
+        elif self.path.startswith("/projects/"):
+            self._handle_serve_image()
         else:
             super().do_GET()
 
@@ -77,6 +81,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_create_project()
         elif self.path == "/api/images/upload":
             self._handle_image_upload()
+        elif self.path == "/api/images/update":
+            self._handle_image_update()
         else:
             self.send_error(404)
 
@@ -248,6 +254,87 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             if not os.path.exists(self.db.get_image_path(project_name, candidate)):
                 return candidate
             counter += 1
+
+    def _handle_image_update(self) -> None:
+        """Update position, scale, or other fields on an image record.
+
+        ``POST /api/images/update``
+
+        Expects a JSON body with ``{"image_id": <int>, ...fields}`` where
+        the additional fields are any subset of ``pos_x``, ``pos_y``,
+        ``scale``, ``rotation``, ``z_index``.  Returns the updated image
+        record on success, or 404 if the image does not exist.
+        """
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        image_id = body.get("image_id")
+        if image_id is None:
+            self._send_json({"error": "Missing image_id"}, status=400)
+            return
+
+        # Extract only the updatable fields from the body.
+        fields = {
+            k: v for k, v in body.items()
+            if k in ("pos_x", "pos_y", "scale", "rotation", "z_index")
+        }
+        if not fields:
+            self._send_json({"error": "No updatable fields provided"}, status=400)
+            return
+
+        updated = self.db.update_image(int(image_id), **fields)
+        if not updated:
+            self._send_json({"error": "Image not found"}, status=404)
+            return
+
+        image = self.db.get_image(int(image_id))
+        self._send_json(image)
+
+    def _handle_serve_image(self) -> None:
+        """Serve an uploaded image file from the projects directory.
+
+        ``GET /projects/<project-name>/<filename>``
+
+        Decodes the URL path, validates against path traversal attacks,
+        and sends the file with the appropriate Content-Type header.
+        """
+        # Decode URL-encoded path (e.g. spaces as %20).
+        decoded_path = urllib.parse.unquote(self.path)
+
+        # Strip the leading "/projects/" prefix and split into parts.
+        relative = decoded_path[len("/projects/"):]
+        parts = relative.split("/")
+
+        # We expect exactly two segments: project name and filename.
+        if len(parts) != 2 or ".." in parts or not all(parts):
+            self.send_error(400, "Invalid image path")
+            return
+
+        project_name, filename = parts
+        file_path = self.db.get_image_path(project_name, filename)
+
+        if not os.path.isfile(file_path):
+            self.send_error(404, "Image not found")
+            return
+
+        # Determine content type from file extension.
+        content_type, _ = mimetypes.guess_type(filename)
+        if content_type is None:
+            content_type = "application/octet-stream"
+
+        try:
+            with open(file_path, "rb") as fh:
+                data = fh.read()
+        except OSError:
+            self.send_error(500, "Failed to read image file")
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     # -- JSON helpers --------------------------------------------------------
 

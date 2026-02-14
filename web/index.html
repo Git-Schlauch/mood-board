@@ -18,12 +18,24 @@
     <script src="js/sidebar.js"></script>
     <script>
         const api = new ApiClient();
-        const sidebar = new Sidebar(api);
-        const canvas = new CanvasController(
+
+        const canvasCtrl = new CanvasController(
             document.getElementById("mood-board-canvas"),
             api,
-            () => sidebar.refreshImageList()
+            {
+                onUploadComplete: () => sidebar.refreshImageList(),
+                getProjectName: () => sidebar.currentProject
+                    ? sidebar.currentProject.name
+                    : "Untitled Project",
+            }
         );
+
+        const sidebar = new Sidebar(api, {
+            onProjectChange: () => {
+                canvasCtrl.clear();
+                canvasCtrl.loadImages();
+            },
+        });
     </script>
 </body>
 </html>

@@ -1,0 +1,31 @@
+Phase 5: Canvas Rendering — Placeholders & Image Display
+
+MODIFIED: backend/server.py
+  - Added import for mimetypes and urllib.parse
+  - Added GET /projects/<project-name>/<filename> route (_handle_serve_image)
+    Serves uploaded image files with correct Content-Type, rejects path traversal
+  - Added POST /api/images/update route (_handle_image_update)
+    Persists pos_x, pos_y, scale, rotation, z_index changes to image records
+
+MODIFIED: web/js/canvas.js (full rewrite)
+  - CanvasController now has a 2D rendering engine with requestAnimationFrame
+  - Canvas sizing syncs drawing buffer to CSS layout size on init and resize
+  - Drop handler creates white placeholder (1/3 canvas size) centred on cursor
+  - Each upload runs as independent async promise (concurrent uploads supported)
+  - On upload success: loads image from /projects/<name>/<file>, fits to placeholder
+    bounds preserving aspect ratio, persists position via api.updateImage()
+  - clear() and loadImages() methods for project switching
+  - Constructor now takes options object with getProjectName and onUploadComplete
+
+MODIFIED: web/js/api.js
+  - Added updateImage(imageId, fields) method for POST /api/images/update
+
+MODIFIED: web/js/sidebar.js
+  - Constructor now accepts options object with onProjectChange callback
+  - _onProjectChange fired from _loadCurrentProject, _onOpenProject, _onCreateProject
+
+MODIFIED: web/index.html
+  - Updated bootstrap: CanvasController created with options (getProjectName, onUploadComplete)
+  - Sidebar created with onProjectChange callback that clears and reloads canvas
+
+Agent: Opus 4.6

@@ -93,6 +93,25 @@ class ApiClient {
     }
 
     /**
+     * Update fields on an existing image record.
+     *
+     * Sends the provided fields (pos_x, pos_y, scale, rotation, z_index)
+     * to the backend which persists them in the database.
+     *
+     * @param {number} imageId - The image record ID.
+     * @param {Object} fields - An object with one or more updatable keys.
+     * @returns {Promise<Object>} The updated image record.
+     */
+    async updateImage(imageId, fields) {
+        const response = await fetch("/api/images/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ image_id: imageId, ...fields }),
+        });
+        return this._handleResponse(response);
+    }
+
+    /**
      * Read a File object as a base64-encoded string (data portion only).
      *
      * Uses FileReader to convert the file contents to a base64 string,
