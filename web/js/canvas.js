@@ -63,6 +63,30 @@ class CanvasController {
         /** @type {number} Offset from cursor to item origin at drag start. */
         this._dragOffsetY = 0;
 
+        /** @type {boolean} Whether the user is resizing a selected image. */
+        this._resizing = false;
+
+        /** @type {string|null} Which corner handle is being dragged: "tl", "tr", "bl", "br". */
+        this._resizeCorner = null;
+
+        /** @type {number} Mouse X position at resize start. */
+        this._resizeStartX = 0;
+
+        /** @type {number} Mouse Y position at resize start. */
+        this._resizeStartY = 0;
+
+        /** @type {number} Item width at resize start. */
+        this._resizeStartWidth = 0;
+
+        /** @type {number} Item height at resize start. */
+        this._resizeStartHeight = 0;
+
+        /** @type {number} Item X position at resize start. */
+        this._resizeStartItemX = 0;
+
+        /** @type {number} Item Y position at resize start. */
+        this._resizeStartItemY = 0;
+
         this._syncCanvasSize();
         this._bindDragEvents();
         this._bindMouseEvents();
@@ -180,6 +204,24 @@ class CanvasController {
         ctx.lineDashOffset = dashLen;
         ctx.strokeRect(x, y, w, h);
 
+        /* Draw corner resize handles — filled white squares with black border. */
+        ctx.setLineDash([]);
+        const hs = 8; /* handle visual size */
+        const half = hs / 2;
+        const corners = [
+            [x - half,     y - half],         /* top-left */
+            [x + w - half, y - half],         /* top-right */
+            [x - half,     y + h - half],     /* bottom-left */
+            [x + w - half, y + h - half],     /* bottom-right */
+        ];
+        for (const [cx, cy] of corners) {
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(cx, cy, hs, hs);
+            ctx.strokeStyle = "#000000";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(cx, cy, hs, hs);
+        }
+
         ctx.restore();
     }
 
@@ -223,6 +265,23 @@ class CanvasController {
         }
 
         const { x, y } = this._canvasCoords(event);
+
+        /* Check if a resize handle of the currently selected item was clicked. */
+        const handleHit = this._hitTestHandle(x, y);
+        if (handleHit) {
+            event.preventDefault();
+            const item = this._selectedItem;
+            this._resizing = true;
+            this._resizeCorner = handleHit;
+            this._resizeStartX = x;
+            this._resizeStartY = y;
+            this._resizeStartWidth = item.width;
+            this._resizeStartHeight = item.height;
+            this._resizeStartItemX = item.x;
+            this._resizeStartItemY = item.y;
+            return;
+        }
+
         const hit = this._hitTest(x, y);
 
         this._selectedItem = hit;
@@ -247,13 +306,29 @@ class CanvasController {
      * @private
      */
     _onMouseMove(event) {
+        /* Handle active resize operation. */
+        if (this._resizing && this._selectedItem) {
+            const { x, y } = this._canvasCoords(event);
+            this._applyResize(x, y);
+            this._scheduleRender();
+            return;
+        }
+
         if (!this._dragging || !this._selectedItem) {
             /* Update cursor style based on hover — only when the event
                target is actually the canvas (listener is on window). */
             if (event.target === this.canvas) {
                 const { x, y } = this._canvasCoords(event);
-                const hover = this._hitTest(x, y);
-                this.canvas.style.cursor = hover ? "grab" : "default";
+
+                /* Resize handle cursors take priority over grab cursor. */
+                const handle = this._hitTestHandle(x, y);
+                if (handle) {
+                    this.canvas.style.cursor =
+                        (handle === "tl" || handle === "br") ? "nwse-resize" : "nesw-resize";
+                } else {
+                    const hover = this._hitTest(x, y);
+                    this.canvas.style.cursor = hover ? "grab" : "default";
+                }
             }
             return;
         }
@@ -265,13 +340,116 @@ class CanvasController {
     }
 
     /**
+     * Apply resize logic based on the current mouse position.
+     *
+     * Computes a new width from the mouse delta relative to the drag start,
+     * derives height from the aspect ratio, clamps to a minimum of 8px in
+     * either dimension, and repositions the image so the opposite corner
+     * stays anchored.
+     *
+     * @param {number} x - Current mouse X in canvas coordinates.
+     * @param {number} y - Current mouse Y in canvas coordinates.
+     * @private
+     */
+    _applyResize(x, y) {
+        const item = this._selectedItem;
+        const dx = x - this._resizeStartX;
+        const dy = y - this._resizeStartY;
+        const aspect = this._resizeStartHeight / this._resizeStartWidth;
+        const minDim = 8;
+
+        let newWidth, newHeight;
+
+        switch (this._resizeCorner) {
+            case "br":
+                /* Bottom-right: expand rightward and downward. */
+                newWidth = this._resizeStartWidth + dx;
+                break;
+            case "bl":
+                /* Bottom-left: expand leftward (negative dx = bigger). */
+                newWidth = this._resizeStartWidth - dx;
+                break;
+            case "tr":
+                /* Top-right: expand rightward and upward. */
+                newWidth = this._resizeStartWidth + dx;
+                break;
+            case "tl":
+                /* Top-left: expand leftward and upward. */
+                newWidth = this._resizeStartWidth - dx;
+                break;
+        }
+
+        /* Derive height from aspect ratio. */
+        newHeight = newWidth * aspect;
+
+        /* Clamp to minimum size. */
+        if (newWidth < minDim || newHeight < minDim) {
+            if (aspect >= 1) {
+                /* Taller than wide — height is the binding constraint. */
+                newHeight = minDim;
+                newWidth = minDim / aspect;
+            } else {
+                newWidth = minDim;
+                newHeight = minDim * aspect;
+            }
+        }
+
+        /* Anchor the opposite corner by adjusting position. */
+        switch (this._resizeCorner) {
+            case "br":
+                /* Top-left stays fixed — position unchanged. */
+                break;
+            case "bl":
+                /* Top-right stays fixed — shift X. */
+                item.x = this._resizeStartItemX + this._resizeStartWidth - newWidth;
+                break;
+            case "tr":
+                /* Bottom-left stays fixed — shift Y. */
+                item.y = this._resizeStartItemY + this._resizeStartHeight - newHeight;
+                break;
+            case "tl":
+                /* Bottom-right stays fixed — shift both X and Y. */
+                item.x = this._resizeStartItemX + this._resizeStartWidth - newWidth;
+                item.y = this._resizeStartItemY + this._resizeStartHeight - newHeight;
+                break;
+        }
+
+        item.width = newWidth;
+        item.height = newHeight;
+    }
+
+    /**
      * Handle mouseup: finish dragging and persist the new position.
      *
      * @param {MouseEvent} event - The native mouseup event.
      * @private
      */
     _onMouseUp(event) {
-        if (event.button !== 0 || !this._dragging) {
+        if (event.button !== 0) {
+            return;
+        }
+
+        /* Finish a resize operation. */
+        if (this._resizing) {
+            const item = this._selectedItem;
+            this._resizing = false;
+            this._resizeCorner = null;
+            this.canvas.style.cursor = "default";
+
+            if (item && item.imageRecord && item.img) {
+                const newScale = item.width / item.img.naturalWidth;
+                this.api.updateImage(item.imageRecord.id, {
+                    pos_x: item.x,
+                    pos_y: item.y,
+                    scale: newScale,
+                }).catch((err) => {
+                    console.error("Failed to persist image resize:", err);
+                });
+            }
+            return;
+        }
+
+        if (!this._dragging) {
             return;
         }
 
@@ -333,6 +511,54 @@ class CanvasController {
                 y <= item.y + item.height
             ) {
                 return item;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Check if a point falls on one of the four corner resize handles
+     * of the currently selected item.
+     *
+     * The hit area is slightly larger than the visual handle (12×12 vs
+     * 8×8 px) to make grabbing easier.  Returns the corner identifier
+     * string or null if no handle was hit.
+     *
+     * @param {number} x - The X coordinate to test.
+     * @param {number} y - The Y coordinate to test.
+     * @returns {string|null} "tl", "tr", "bl", "br", or null.
+     * @private
+     */
+    _hitTestHandle(x, y) {
+        const item = this._selectedItem;
+        if (!item) {
+            return null;
+        }
+
+        const pad = 2; /* same padding used by the selection outline */
+        const bx = item.x - pad;
+        const by = item.y - pad;
+        const bw = item.width + pad * 2;
+        const bh = item.height + pad * 2;
+
+        const hitSize = 12;
+        const half = hitSize / 2;
+
+        const corners = [
+            { id: "tl", cx: bx,      cy: by },
+            { id: "tr", cx: bx + bw, cy: by },
+            { id: "bl", cx: bx,      cy: by + bh },
+            { id: "br", cx: bx + bw, cy: by + bh },
+        ];
+
+        for (const corner of corners) {
+            if (
+                x >= corner.cx - half &&
+                x <= corner.cx + half &&
+                y >= corner.cy - half &&
+                y <= corner.cy + half
+            ) {
+                return corner.id;
             }
         }
         return null;
@@ -561,6 +787,8 @@ class CanvasController {
         this._items = [];
         this._selectedItem = null;
         this._dragging = false;
+        this._resizing = false;
+        this._resizeCorner = null;
         this._syncCanvasSize();
         this._scheduleRender();
     }

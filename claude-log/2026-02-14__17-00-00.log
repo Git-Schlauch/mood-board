@@ -1,0 +1,16 @@
+Image Resize Handles Implementation
+=====================================
+
+Modified: web/js/canvas.js
+
+Changes:
+- Added resize state variables to constructor (_resizing, _resizeCorner, _resizeStartX/Y, _resizeStartWidth/Height, _resizeStartItemX/Y)
+- Extended _drawSelectionOutline() to draw 8x8px white/black corner handles at all four corners of the selection outline
+- Added _hitTestHandle(x, y) method: checks if a point falls on a corner handle of the selected item (12x12px hit area for easier grabbing)
+- Updated _onMouseDown() to check resize handles before regular hit-test; starts resize operation if handle clicked
+- Updated _onMouseMove() to handle active resize (calls _applyResize), and to show nwse-resize/nesw-resize cursors on handle hover
+- Added _applyResize(x, y) method: computes new width from mouse delta, derives height from aspect ratio, clamps to 8px minimum, anchors opposite corner
+- Updated _onMouseUp() to persist new scale via api.updateImage() when resize completes
+- Updated clear() to reset resize state
+
+Agent: Opus 4.6
