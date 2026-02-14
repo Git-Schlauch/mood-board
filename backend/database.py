@@ -31,6 +31,13 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 """
 
+_SCHEMA_SETTINGS = """\
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+"""
+
 _SCHEMA_IMAGES = """\
 CREATE TABLE IF NOT EXISTS images (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,7 +147,73 @@ class Database:
         """
         with self.connect() as conn:
             conn.execute(_SCHEMA_PROJECTS)
+            conn.execute(_SCHEMA_SETTINGS)
             conn.execute(_SCHEMA_IMAGES)
+
+    # -- settings ------------------------------------------------------------
+
+    def get_setting(self, key: str) -> str | None:
+        """Fetch a setting value by its key.
+
+        Args:
+            key: The setting key.
+
+        Returns:
+            The setting value as a string, or ``None`` if not set.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)
+            ).fetchone()
+        return row["value"] if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Insert or update a setting.
+
+        Uses ``INSERT OR REPLACE`` so the row is created if missing or
+        updated if it already exists.
+
+        Args:
+            key: The setting key.
+            value: The setting value.
+        """
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (key, value),
+            )
+
+    def get_or_create_current_project(self) -> dict[str, Any]:
+        """Return the current project, creating one if necessary.
+
+        Resolution order:
+
+        1. Read ``current_project_id`` from settings — if the referenced
+           project still exists, return it.
+        2. Fall back to the first project alphabetically.
+        3. If no projects exist at all, create *Untitled Project* and set
+           it as the current project.
+
+        Returns:
+            A dict of the current project's column values.
+        """
+        # Try the stored current project.
+        raw_id = self.get_setting("current_project_id")
+        if raw_id is not None:
+            project = self.get_project(int(raw_id))
+            if project is not None:
+                return project
+
+        # Fall back to the first existing project.
+        projects = self.list_projects()
+        if projects:
+            self.set_setting("current_project_id", str(projects[0]["id"]))
+            return projects[0]
+
+        # No projects exist — create a default one.
+        project = self.create_project("Untitled Project")
+        self.set_setting("current_project_id", str(project["id"]))
+        return project
 
     # -- project CRUD --------------------------------------------------------
 

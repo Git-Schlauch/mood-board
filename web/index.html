@@ -12,5 +12,12 @@
             Your browser does not support the canvas element.
         </canvas>
     </main>
+
+    <script src="js/api.js"></script>
+    <script src="js/sidebar.js"></script>
+    <script>
+        const api = new ApiClient();
+        const sidebar = new Sidebar(api);
+    </script>
 </body>
 </html>

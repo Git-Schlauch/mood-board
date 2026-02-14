@@ -1,0 +1,24 @@
+Phase 3: Sidebar, Project Dialog & API Routes
+
+Modified:
+- backend/database.py — added settings table (key-value), get_setting(), set_setting(),
+  and get_or_create_current_project() for tracking the active project across sessions
+- backend/server.py — added API routing (do_GET/do_POST overrides), JSON helpers,
+  Database integration; endpoints: GET /api/current-project, GET /api/projects,
+  POST /api/projects/open, POST /api/projects
+- web/css/style.css — flexbox body layout, sidebar styles (280px open / 60px collapsed
+  with CSS transition), dialog overlay and form styles, dark theme throughout
+- web/index.html — added script tags for api.js and sidebar.js, bootstrap inline script
+
+Created:
+- web/js/api.js — ApiClient class wrapping fetch() calls for all project API endpoints
+- web/js/sidebar.js — Sidebar class: builds DOM programmatically, toggle expand/collapse,
+  "Open Project" dialog with dropdown + create new project section
+
+Purpose:
+Add a collapsible right-hand sidebar with project name display and an "Open Project"
+dialog for switching between or creating projects. Backend now serves a JSON API for
+project CRUD and tracks the current project via a settings table. On first load, a
+default "Untitled Project" is auto-created if none exist.
+
+Agent: Opus 4.6
