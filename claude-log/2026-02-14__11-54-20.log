@@ -1,0 +1,23 @@
+Phase 2: SQLite Database Layer
+
+Created:
+- backend/database.py — Database class with full CRUD for projects and images
+  - SQLite via stdlib sqlite3, single DB file at data/mood_board.db
+  - Projects table (id, name, created_at, updated_at)
+  - Images table (id, project_id, filename, pos_x, pos_y, scale, rotation, z_index, timestamps)
+  - Foreign key cascade delete (project deletion removes image rows)
+  - Name validation for filesystem safety
+  - Context manager for connection lifecycle
+  - In-memory DB support for testing
+- docs/backend/database.md — module documentation with schema, usage examples, design notes
+
+Modified:
+- .gitignore — added data/ to exclude DB and uploaded images from version control
+
+Purpose:
+Add the persistence layer for storing mood board project and image metadata.
+Images are stored on the filesystem; the database holds positions, scaling,
+rotation, and draw order. Designed as a standalone module ready to be wired
+into the server's API routes.
+
+Agent: Opus 4.6
