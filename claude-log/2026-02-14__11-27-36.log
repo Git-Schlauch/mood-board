@@ -1,0 +1,18 @@
+Phase 1: Project Setup
+
+Created:
+- pyproject.toml — uv-managed Python project (>=3.12, no third-party deps)
+- .venv/ — Python virtual environment via uv
+- backend/__init__.py — package marker
+- backend/server.py — minimal HTTP server using http.server; serves web/ directory on port 8031
+- web/index.html — HTML5 boilerplate with a <canvas> element placeholder
+- web/css/style.css — base styles: dark theme, full-viewport canvas layout
+- web/js/ — empty directory for future JS modules
+- docs/frontend/ — empty directory for frontend documentation
+- docs/backend/ — empty directory for backend documentation
+
+Purpose:
+Establish the foundational project structure, Python environment, development
+server, and a minimal canvas-based frontend shell ready for further development.
+
+Agent: Opus 4.6

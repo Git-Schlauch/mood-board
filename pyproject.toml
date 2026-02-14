@@ -1,0 +1,6 @@
+[project]
+name = "mood-board"
+version = "0.1.0"
+description = "A browser-based mood board for arranging and organising images"
+requires-python = ">=3.12"
+dependencies = []

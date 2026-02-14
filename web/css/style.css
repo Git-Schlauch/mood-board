@@ -1,0 +1,40 @@
+/* ===================================================================
+   Mood Board — base styles
+   =================================================================== */
+
+/* Reset & box-sizing */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #1a1a2e;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: #e0e0e0;
+}
+
+/* Canvas container — fills the viewport */
+#canvas-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* The mood board canvas itself */
+#mood-board-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 1px solid #2a2a4a;
+    background-color: #16213e;
+    cursor: default;
+}
