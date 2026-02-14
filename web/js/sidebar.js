@@ -58,7 +58,7 @@ class Sidebar {
         this._toggleBtn = document.createElement("button");
         this._toggleBtn.className = "sidebar__toggle";
         this._toggleBtn.title = "Minimise sidebar";
-        this._toggleBtn.textContent = "\u25C0"; /* ◀ */
+        this._toggleBtn.textContent = "\u25B6"; /* ▶ */
 
         this._projectName = document.createElement("span");
         this._projectName.className = "sidebar__project-name";
@@ -112,12 +112,12 @@ class Sidebar {
         if (this.isOpen) {
             this._el.classList.remove("sidebar--collapsed");
             this._el.classList.add("sidebar--open");
-            this._toggleBtn.textContent = "\u25C0"; /* ◀ */
+            this._toggleBtn.textContent = "\u25B6"; /* ▶ */
             this._toggleBtn.title = "Minimise sidebar";
         } else {
             this._el.classList.remove("sidebar--open");
             this._el.classList.add("sidebar--collapsed");
-            this._toggleBtn.textContent = "\u25B6"; /* ▶ */
+            this._toggleBtn.textContent = "\u25C0"; /* ◀ */
             this._toggleBtn.title = "Expand sidebar";
         }
     }

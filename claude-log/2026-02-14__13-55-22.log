@@ -1,0 +1,8 @@
+Fix sidebar toggle arrow directions
+
+Modified:
+- web/js/sidebar.js — swapped arrow characters on the toggle button so that
+  ▶ (pointing right) means "collapse" and ◀ (pointing left) means "expand",
+  matching the sidebar's position on the right edge of the screen.
+
+Agent: Opus 4.6
