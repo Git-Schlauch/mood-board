@@ -299,9 +299,12 @@ class CanvasController {
      */
     _canvasCoords(event) {
         const rect = this.canvas.getBoundingClientRect();
+        /* Scale from CSS pixels to canvas buffer coordinates.  The
+           canvas buffer dimensions may differ from the CSS layout size
+           (e.g. after the sidebar changes the flex layout). */
         return {
-            x: event.clientX - rect.left,
-            y: event.clientY - rect.top,
+            x: (event.clientX - rect.left) * (this.canvas.width / rect.width),
+            y: (event.clientY - rect.top) * (this.canvas.height / rect.height),
         };
     }
 
@@ -558,6 +561,7 @@ class CanvasController {
         this._items = [];
         this._selectedItem = null;
         this._dragging = false;
+        this._syncCanvasSize();
         this._scheduleRender();
     }
 

@@ -1,0 +1,13 @@
+Fix image selection hit area larger than rendered image
+
+MODIFIED: web/js/canvas.js
+  - Fixed _canvasCoords() to scale from CSS pixels to canvas buffer
+    coordinates. The canvas buffer was sized at construction before the
+    sidebar was added to the DOM, causing a mismatch between the drawing
+    coordinate space and the mouse coordinate space. Mouse positions are
+    now multiplied by (canvas.width / rect.width) to map correctly.
+  - Added _syncCanvasSize() call in clear() so the canvas buffer is
+    re-synced whenever the project changes (which happens after the
+    sidebar has been laid out).
+
+Agent: Opus 4.6
