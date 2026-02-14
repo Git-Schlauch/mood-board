@@ -1,0 +1,13 @@
+Modified: web/css/style.css
+
+Changes:
+- Removed flexbox layout from body that placed canvas and sidebar side by side
+- Made canvas container always fill the full viewport (width/height: 100%)
+- Changed sidebar to position: fixed with z-index: 100 so it overlays on top of the canvas
+- Sidebar toggle no longer affects canvas dimensions or image aspect ratios
+
+Purpose: Fix canvas resizing when sidebar opens/closes. The sidebar now floats
+on top of the canvas rather than sharing horizontal space with it, so the canvas
+buffer dimensions remain stable regardless of sidebar state.
+
+Agent: Opus 4.6
