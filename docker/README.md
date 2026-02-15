@@ -37,11 +37,20 @@ written to that host folder and survive container rebuilds.
 
 ## Changing the port
 
-The server listens on port 8031 by default. To change it, set the
+If you simply want the server to listen on a different port on the host system
+set the host port accordingly in the `docker run` command. For example to
+set the port to 8080 use a command like:
+
+```bash
+docker run -p 8080:8031 mood-board
+```
+
+If you need to change the port inside the docker container you can do so by
+setting the `MOODBOARD_PORT` inside the docker iamge. To change it, set the
 `MOODBOARD_PORT` environment variable and update the port mapping to match:
 
 ```bash
-docker run -e MOODBOARD_PORT=9000 -p 9000:9000 mood-board
+docker run -e MOODBOARD_PORT=9000 -p 8080:9000 mood-board
 ```
 
 The `-p` flag maps `host-port:container-port`. Both sides must agree with the
