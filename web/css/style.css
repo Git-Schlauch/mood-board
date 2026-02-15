@@ -176,6 +176,15 @@ html, body {
     max-width: 240px;
 }
 
+/* Clickable image name rows */
+.sidebar__image-table tr[data-image-id] {
+    cursor: pointer;
+}
+
+.sidebar__image-table tr[data-image-id]:hover td {
+    background: rgba(255, 255, 255, 0.06);
+}
+
 /* Selected image row — bold filename */
 .sidebar__image-row--selected td {
     font-weight: 700;

@@ -326,6 +326,11 @@ class Sidebar {
                 nameCell.textContent = img.filename;
                 nameCell.title = img.filename;
                 nameRow.appendChild(nameCell);
+                nameRow.addEventListener("click", () => {
+                    if (this._canvas) {
+                        this._canvas.selectImageById(parseInt(nameRow.dataset.imageId, 10));
+                    }
+                });
                 this._imageTableBody.appendChild(nameRow);
 
                 /* Detail row (hidden by default) */

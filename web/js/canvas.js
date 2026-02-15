@@ -1096,6 +1096,24 @@ class CanvasController {
         return null;
     }
 
+    /**
+     * Select an image on the canvas by its database record ID.
+     *
+     * Looks up the canvas item whose imageRecord.id matches the given ID,
+     * selects it (showing the outline and action panel), and updates the
+     * sidebar highlight. If no matching item is found the selection is cleared.
+     *
+     * @param {number} id - The database record ID of the image to select.
+     */
+    selectImageById(id) {
+        const item = this._items.find(
+            (it) => it.imageRecord && it.imageRecord.id === id
+        ) || null;
+        this._selectedItem = item;
+        this._notifySelectionChange();
+        this._scheduleRender();
+    }
+
     /* ------------------------------------------------------------------
      *  Project switching
      * ------------------------------------------------------------------ */

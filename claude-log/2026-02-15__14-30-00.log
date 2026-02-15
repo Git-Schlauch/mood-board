@@ -1,0 +1,12 @@
+Click sidebar image name to select on canvas
+
+Modified files:
+- web/js/canvas.js: Added selectImageById(id) method to CanvasController that finds
+  an item by its database record ID, selects it, updates the sidebar highlight, and
+  redraws the canvas.
+- web/js/sidebar.js: Added click event listener on image name rows in refreshImageList()
+  that calls canvas.selectImageById() with the row's image ID.
+- web/css/style.css: Added cursor: pointer and hover highlight styles for clickable
+  image name rows.
+
+Agent: Opus 4.6
