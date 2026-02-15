@@ -1,0 +1,10 @@
+Rename docker/readme.txt to docker/README.md with markdown formatting
+
+Modified files:
+- docker/README.md: Converted from plain text to markdown with proper headings,
+  fenced code blocks, and inline code formatting.
+
+Deleted files:
+- docker/readme.txt: Replaced by README.md.
+
+Agent: Opus 4.6
