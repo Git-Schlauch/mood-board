@@ -1,0 +1,13 @@
+projects/
+claude-log/
+docs/
+docker/
+.git/
+.gitignore
+.venv/
+*.pyc
+__pycache__/
+CLAUDE.md
+README.md
+pyproject.toml
+uv.lock

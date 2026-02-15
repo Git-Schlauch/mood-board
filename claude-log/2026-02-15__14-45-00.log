@@ -1,0 +1,12 @@
+Add Docker setup
+
+Created files:
+- docker/Dockerfile: Lightweight Alpine-based container running the Mood Board
+  server. Uses a non-root user, exposes port 8031 by default, and supports a
+  MOODBOARD_PORT env var for custom ports. /app/projects is declared as a volume.
+- docker/readme.txt: Usage guide covering build, run, persistent storage via
+  volume mounts, and changing the exposed port.
+- .dockerignore: Excludes projects data, logs, docs, .git, .venv, and other
+  non-runtime files from the Docker build context.
+
+Agent: Opus 4.6
