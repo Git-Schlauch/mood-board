@@ -101,6 +101,25 @@ html, body {
     font-weight: 600;
 }
 
+/* Inline rename input — matches the project name span styling. */
+.sidebar__project-name-input {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    color: #e0e0e0;
+    background-color: transparent;
+    border: none;
+    border-bottom: 2px solid #0f3460;
+    outline: none;
+    padding: 0 0 2px 0;
+}
+
+.sidebar__project-name-input:focus {
+    border-bottom-color: #154985;
+}
+
 /* Hide project name and content when collapsed. */
 .sidebar--collapsed .sidebar__project-name,
 .sidebar--collapsed .sidebar__content {

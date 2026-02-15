@@ -85,6 +85,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_image_update()
         elif self.path == "/api/images/delete":
             self._handle_image_delete()
+        elif self.path == "/api/projects/rename":
+            self._handle_rename_project()
         else:
             self.send_error(404)
 
@@ -162,6 +164,48 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
 
         self.db.set_setting("current_project_id", str(project["id"]))
         self._send_json(project, status=201)
+
+    def _handle_rename_project(self) -> None:
+        """Rename an existing project.
+
+        ``POST /api/projects/rename``
+
+        Expects a JSON body with ``{"project_id": <int>, "new_name": "<string>"}``.
+        Delegates to :meth:`Database.rename_project` which updates the database
+        and moves the project directory on disk.  Returns the updated project
+        dict on success, 400 on validation error, 404 if the project is not
+        found, or 409 if the new name is already taken.
+        """
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        project_id = body.get("project_id")
+        new_name = body.get("new_name")
+
+        if project_id is None or not new_name:
+            self._send_json(
+                {"error": "Missing project_id or new_name"}, status=400
+            )
+            return
+
+        try:
+            success = self.db.rename_project(int(project_id), new_name)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        except sqlite3.IntegrityError:
+            self._send_json(
+                {"error": f"Project '{new_name}' already exists"}, status=409
+            )
+            return
+
+        if not success:
+            self._send_json({"error": "Project not found"}, status=404)
+            return
+
+        project = self.db.get_project(int(project_id))
+        self._send_json(project)
 
     # -- image handlers ------------------------------------------------------
 

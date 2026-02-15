@@ -109,12 +109,121 @@ class Sidebar {
      * ------------------------------------------------------------------ */
 
     /**
-     * Bind click handlers for the toggle button and Open Project button.
+     * Bind click handlers for the toggle button, Open Project button,
+     * and double-click to rename the project name.
      * @private
      */
     _bindEvents() {
         this._toggleBtn.addEventListener("click", () => this.toggle());
         this._openBtn.addEventListener("click", () => this.openProjectDialog());
+        this._projectName.addEventListener("dblclick", () => this._startRename());
+    }
+
+    /* ------------------------------------------------------------------
+     *  Inline project rename
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Replace the project name span with an editable input field.
+     *
+     * The input is pre-filled with the current project name and auto-selected.
+     * Pressing Enter or blurring the input commits the rename; pressing Escape
+     * cancels and reverts to the original name.
+     * @private
+     */
+    _startRename() {
+        if (!this.currentProject || this._renameInput) {
+            return;
+        }
+
+        const originalName = this.currentProject.name;
+
+        /* Create the input element. */
+        this._renameInput = document.createElement("input");
+        this._renameInput.type = "text";
+        this._renameInput.className = "sidebar__project-name-input";
+        this._renameInput.value = originalName;
+
+        /* Hide the span and insert the input beside it. */
+        this._projectName.style.display = "none";
+        this._header.appendChild(this._renameInput);
+
+        /* Focus and select all text. */
+        this._renameInput.focus();
+        this._renameInput.select();
+
+        /** Commit the rename with the current input value. */
+        const commit = () => {
+            const newName = this._renameInput.value.trim();
+            if (newName && newName !== originalName) {
+                this._commitRename(newName, originalName);
+            } else {
+                this._endRename(originalName);
+            }
+        };
+
+        /** Cancel the rename and revert to the original name. */
+        const cancel = () => {
+            this._endRename(originalName);
+        };
+
+        this._renameInput.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                commit();
+            } else if (e.key === "Escape") {
+                e.preventDefault();
+                cancel();
+            }
+        });
+
+        this._renameInput.addEventListener("blur", () => {
+            /* Guard: if _renameInput is already gone, do nothing. */
+            if (!this._renameInput) {
+                return;
+            }
+            commit();
+        });
+    }
+
+    /**
+     * Send the rename request to the backend and finish editing.
+     *
+     * On success the sidebar and page title are updated with the new name.
+     * On failure the original name is restored.
+     *
+     * @param {string} newName - The desired new project name.
+     * @param {string} originalName - The name to revert to on failure.
+     * @private
+     */
+    async _commitRename(newName, originalName) {
+        try {
+            const updated = await this.api.renameProject(
+                this.currentProject.id,
+                newName
+            );
+            this.currentProject = updated;
+            this._endRename(updated.name);
+        } catch (err) {
+            console.error("Failed to rename project:", err);
+            this._endRename(originalName);
+        }
+    }
+
+    /**
+     * Remove the rename input, restore the project name span, and update
+     * its text content to the given name.
+     *
+     * @param {string} displayName - The name to display in the span.
+     * @private
+     */
+    _endRename(displayName) {
+        if (this._renameInput) {
+            this._renameInput.remove();
+            this._renameInput = null;
+        }
+        this._projectName.style.display = "";
+        this._projectName.textContent = displayName;
     }
 
     /* ------------------------------------------------------------------

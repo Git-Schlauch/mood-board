@@ -1,0 +1,9 @@
+Double-click to rename project in sidebar
+
+Modified files:
+- backend/server.py: Added POST /api/projects/rename route and _handle_rename_project() handler. Delegates to Database.rename_project() and returns the updated project dict.
+- web/js/api.js: Added renameProject(projectId, newName) method that POSTs to /api/projects/rename.
+- web/js/sidebar.js: Added dblclick listener on project name span. On double-click, replaces span with an input field for inline editing. Enter/blur commits rename via API; Escape cancels. Includes _startRename(), _commitRename(), and _endRename() methods.
+- web/css/style.css: Added .sidebar__project-name-input styles — transparent background, bottom border, matching font size/weight to the project name span.
+
+Agent: Opus 4.6

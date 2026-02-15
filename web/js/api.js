@@ -62,6 +62,25 @@ class ApiClient {
     }
 
     /**
+     * Rename an existing project.
+     *
+     * Sends the project ID and new name to the backend which updates the
+     * database record and moves the project directory on disk.
+     *
+     * @param {number} projectId - The ID of the project to rename.
+     * @param {string} newName - The desired new name.
+     * @returns {Promise<Object>} The updated project object.
+     */
+    async renameProject(projectId, newName) {
+        const response = await fetch("/api/projects/rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ project_id: projectId, new_name: newName }),
+        });
+        return this._handleResponse(response);
+    }
+
+    /**
      * Upload an image file to the current project.
      *
      * Reads the file as base64 and sends it to the backend as a JSON
