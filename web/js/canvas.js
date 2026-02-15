@@ -23,6 +23,9 @@ class CanvasController {
      *     project name, used to build image URLs.
      * @param {Function} [options.onChange] - Callback invoked after any
      *     canvas change (z-order, delete) that the sidebar should reflect.
+     * @param {Function} [options.onSelectionChange] - Callback invoked when
+     *     the selected image changes or its position/size is updated.
+     *     Receives an info object or null when deselected.
      */
     constructor(canvas, api, options = {}) {
         /** @type {HTMLCanvasElement} */
@@ -39,6 +42,9 @@ class CanvasController {
 
         /** @type {Function|null} */
         this._onChange = options.onChange || null;
+
+        /** @type {Function|null} */
+        this._onSelectionChange = options.onSelectionChange || null;
 
         /** @type {Function|null} */
         this._getProjectName = options.getProjectName || null;
@@ -293,6 +299,7 @@ class CanvasController {
         const hit = this._hitTest(x, y);
 
         this._selectedItem = hit;
+        this._notifySelectionChange();
         this._scheduleRender();
 
         if (hit) {
@@ -455,6 +462,7 @@ class CanvasController {
                 });
             }
             /* Re-render so the action panel reappears after resize. */
+            this._notifySelectionChange();
             this._scheduleRender();
             return;
         }
@@ -478,6 +486,7 @@ class CanvasController {
         }
 
         /* Re-render so the action panel reappears after drag. */
+        this._notifySelectionChange();
         this._scheduleRender();
     }
 
@@ -1003,6 +1012,7 @@ class CanvasController {
             this._items.splice(idx, 1);
         }
         this._selectedItem = null;
+        this._notifySelectionChange();
 
         this.api.deleteImage(item.imageRecord.id)
             .catch((err) => {
@@ -1013,6 +1023,77 @@ class CanvasController {
         if (this._onChange) {
             this._onChange();
         }
+    }
+
+    /* ------------------------------------------------------------------
+     *  Selection notification & query helpers
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Build a plain info object from the currently selected item and
+     * invoke the onSelectionChange callback.
+     *
+     * Called whenever the selection changes (select, deselect) or the
+     * selected item's position/size is modified (drag, resize).
+     * @private
+     */
+    _notifySelectionChange() {
+        if (!this._onSelectionChange) {
+            return;
+        }
+        const item = this._selectedItem;
+        if (!item || !item.imageRecord) {
+            this._onSelectionChange(null);
+            return;
+        }
+        this._onSelectionChange({
+            id: item.imageRecord.id,
+            x: Math.round(item.x),
+            y: Math.round(item.y),
+            width: Math.round(item.width),
+            height: Math.round(item.height),
+            naturalWidth: item.img ? item.img.naturalWidth : 0,
+            naturalHeight: item.img ? item.img.naturalHeight : 0,
+        });
+    }
+
+    /**
+     * Return a Map of image ID to info object for all loaded canvas items.
+     *
+     * Used by the sidebar to enrich the image table with position and
+     * scaled dimensions for each image.
+     *
+     * @returns {Map<number, Object>} Map keyed by image record ID.
+     */
+    getItemsInfo() {
+        const map = new Map();
+        for (const item of this._items) {
+            if (item.type === "image" && item.imageRecord) {
+                map.set(item.imageRecord.id, {
+                    id: item.imageRecord.id,
+                    x: Math.round(item.x),
+                    y: Math.round(item.y),
+                    width: Math.round(item.width),
+                    height: Math.round(item.height),
+                    naturalWidth: item.img ? item.img.naturalWidth : 0,
+                    naturalHeight: item.img ? item.img.naturalHeight : 0,
+                });
+            }
+        }
+        return map;
+    }
+
+    /**
+     * Return the database record ID of the currently selected image,
+     * or null if nothing is selected.
+     *
+     * @returns {number|null} The selected image's record ID.
+     */
+    getSelectedImageId() {
+        if (this._selectedItem && this._selectedItem.imageRecord) {
+            return this._selectedItem.imageRecord.id;
+        }
+        return null;
     }
 
     /* ------------------------------------------------------------------
@@ -1032,6 +1113,7 @@ class CanvasController {
         this._resizing = false;
         this._resizeCorner = null;
         this._actionPanel.classList.add("canvas-actions--hidden");
+        this._notifySelectionChange();
         this._syncCanvasSize();
         this._scheduleRender();
     }

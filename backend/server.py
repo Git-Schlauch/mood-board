@@ -271,8 +271,16 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         with open(dest, "wb") as fh:
             fh.write(file_bytes)
 
+        # Extract optional native dimensions sent by the frontend.
+        native_width = int(body.get("native_width", 0))
+        native_height = int(body.get("native_height", 0))
+
         # Record in the database.
-        image = self.db.add_image(project["id"], save_name)
+        image = self.db.add_image(
+            project["id"], save_name,
+            native_width=native_width,
+            native_height=native_height,
+        )
         self._send_json(image, status=201)
 
     def _unique_filename(self, project_name: str, filename: str) -> str:

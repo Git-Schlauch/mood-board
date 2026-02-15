@@ -83,21 +83,56 @@ class ApiClient {
     /**
      * Upload an image file to the current project.
      *
-     * Reads the file as base64 and sends it to the backend as a JSON
-     * payload.  The backend saves the file to disk and records it in
-     * the database.
+     * Reads the file as base64, extracts the native pixel dimensions
+     * by loading it into a temporary Image element, and sends everything
+     * to the backend as a JSON payload.  The backend saves the file to
+     * disk and records it in the database (including native dimensions).
      *
      * @param {File} file - A File object (e.g. from a drop event).
      * @returns {Promise<Object>} The created image record.
      */
     async uploadImage(file) {
         const base64Data = await this._readFileAsBase64(file);
+        const dims = await this._getNativeDimensions(file);
         const response = await fetch("/api/images/upload", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ filename: file.name, data: base64Data }),
+            body: JSON.stringify({
+                filename: file.name,
+                data: base64Data,
+                native_width: dims.width,
+                native_height: dims.height,
+            }),
         });
         return this._handleResponse(response);
+    }
+
+    /**
+     * Load a File into a temporary Image element to read its native dimensions.
+     *
+     * Creates an object URL from the file, waits for the image to load,
+     * reads naturalWidth/naturalHeight, then revokes the URL to free memory.
+     *
+     * @param {File} file - The image file.
+     * @returns {Promise<{width: number, height: number}>} Native pixel dimensions.
+     * @private
+     */
+    _getNativeDimensions(file) {
+        return new Promise((resolve) => {
+            const url = URL.createObjectURL(file);
+            const img = new Image();
+            img.onload = () => {
+                const width = img.naturalWidth;
+                const height = img.naturalHeight;
+                URL.revokeObjectURL(url);
+                resolve({ width, height });
+            };
+            img.onerror = () => {
+                URL.revokeObjectURL(url);
+                resolve({ width: 0, height: 0 });
+            };
+            img.src = url;
+        });
     }
 
     /**

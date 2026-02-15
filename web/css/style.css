@@ -176,6 +176,28 @@ html, body {
     max-width: 240px;
 }
 
+/* Selected image row — bold filename */
+.sidebar__image-row--selected td {
+    font-weight: 700;
+}
+
+/* Detail row — hidden by default, shown when image is selected */
+.sidebar__image-detail {
+    display: none;
+}
+
+.sidebar__image-detail td {
+    font-size: 11px;
+    color: #8a8aaa;
+    padding: 2px 6px 6px 12px;
+    border-bottom: 1px solid #2a2a4a;
+    line-height: 1.5;
+}
+
+.sidebar__image-detail--visible {
+    display: table-row;
+}
+
 .sidebar__image-empty {
     color: #6a6a8a;
     font-style: italic;

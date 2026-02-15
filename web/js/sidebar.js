@@ -19,6 +19,8 @@ class Sidebar {
      *     whenever the active project changes (open, create, or initial
      *     load).  Receives no arguments — the caller should read
      *     ``sidebar.currentProject`` for the new project.
+     * @param {CanvasController} [options.canvas] - Reference to the
+     *     canvas controller, used to query item positions and selection.
      */
     constructor(api, options = {}) {
         /** @type {ApiClient} */
@@ -35,6 +37,9 @@ class Sidebar {
 
         /** @type {Function|null} */
         this._onProjectChange = options.onProjectChange || null;
+
+        /** @type {CanvasController|null} */
+        this._canvas = options.canvas || null;
 
         this._buildDOM();
         this._bindEvents();
@@ -281,10 +286,12 @@ class Sidebar {
     /**
      * Fetch images for the current project and rebuild the sidebar table.
      *
-     * Clears the existing table body and populates it with one row per
-     * image.  If no images exist a placeholder row is shown instead.
-     * Safe to call at any time — if the API call fails the table is
-     * left empty with an error logged to the console.
+     * Clears the existing table body and populates it with two rows per
+     * image: a name row and a collapsible detail row showing position,
+     * scaled size, and native dimensions.  If the image is currently
+     * selected on the canvas, the detail row is shown and the name row
+     * is highlighted.  Safe to call at any time — if the API call fails
+     * the table is left empty with an error logged to the console.
      */
     async refreshImageList() {
         this._imageTableBody.innerHTML = "";
@@ -300,16 +307,122 @@ class Sidebar {
                 this._imageTableBody.appendChild(row);
                 return;
             }
+
+            /* Gather canvas-side data for position/scaled size. */
+            const itemsInfo = this._canvas ? this._canvas.getItemsInfo() : new Map();
+            const selectedId = this._canvas ? this._canvas.getSelectedImageId() : null;
+
             for (const img of images) {
-                const row = document.createElement("tr");
-                const cell = document.createElement("td");
-                cell.textContent = img.filename;
-                cell.title = img.filename;
-                row.appendChild(cell);
-                this._imageTableBody.appendChild(row);
+                const info = itemsInfo.get(img.id);
+                const isSelected = img.id === selectedId;
+
+                /* Name row */
+                const nameRow = document.createElement("tr");
+                nameRow.dataset.imageId = img.id;
+                if (isSelected) {
+                    nameRow.className = "sidebar__image-row--selected";
+                }
+                const nameCell = document.createElement("td");
+                nameCell.textContent = img.filename;
+                nameCell.title = img.filename;
+                nameRow.appendChild(nameCell);
+                this._imageTableBody.appendChild(nameRow);
+
+                /* Detail row (hidden by default) */
+                const detailRow = document.createElement("tr");
+                detailRow.className = "sidebar__image-detail";
+                detailRow.dataset.detailForId = img.id;
+                if (isSelected) {
+                    detailRow.classList.add("sidebar__image-detail--visible");
+                }
+                const detailCell = document.createElement("td");
+                detailCell.innerHTML = this._buildDetailHtml(info, img);
+                detailRow.appendChild(detailCell);
+                this._imageTableBody.appendChild(detailRow);
             }
         } catch (err) {
             console.error("Failed to load image list:", err);
+        }
+    }
+
+    /**
+     * Build the HTML string for a detail cell.
+     *
+     * Combines canvas-side data (position, scaled size) with database
+     * record data (native dimensions) into a compact multi-line string.
+     *
+     * @param {Object|undefined} info - Canvas item info (may be undefined
+     *     if the image hasn't loaded yet).
+     * @param {Object} record - The image database record.
+     * @returns {string} HTML string for the detail cell content.
+     * @private
+     */
+    _buildDetailHtml(info, record) {
+        const x = info ? info.x : "?";
+        const y = info ? info.y : "?";
+        const w = info ? info.width : "?";
+        const h = info ? info.height : "?";
+        const nw = record.native_width || (info ? info.naturalWidth : 0);
+        const nh = record.native_height || (info ? info.naturalHeight : 0);
+        return `Position: ${x}, ${y}<br>` +
+               `Size: ${w} &times; ${h}<br>` +
+               `Native: ${nw} &times; ${nh}`;
+    }
+
+    /**
+     * Highlight the sidebar row matching the given selection info.
+     *
+     * Called by the canvas's onSelectionChange callback.  Clears all
+     * existing highlights first, then — if info is not null — finds
+     * the matching name row and detail row by data attribute and
+     * applies the highlight class / updates the detail values.
+     *
+     * @param {Object|null} info - Selection info object with id, x, y,
+     *     width, height, naturalWidth, naturalHeight — or null when
+     *     the selection is cleared.
+     */
+    highlightImage(info) {
+        /* Clear all existing highlights. */
+        const selected = this._imageTableBody.querySelectorAll(
+            ".sidebar__image-row--selected"
+        );
+        for (const el of selected) {
+            el.classList.remove("sidebar__image-row--selected");
+        }
+        const visibleDetails = this._imageTableBody.querySelectorAll(
+            ".sidebar__image-detail--visible"
+        );
+        for (const el of visibleDetails) {
+            el.classList.remove("sidebar__image-detail--visible");
+        }
+
+        if (!info) {
+            return;
+        }
+
+        /* Find the matching name row and detail row. */
+        const nameRow = this._imageTableBody.querySelector(
+            `tr[data-image-id="${info.id}"]`
+        );
+        const detailRow = this._imageTableBody.querySelector(
+            `tr[data-detail-for-id="${info.id}"]`
+        );
+
+        if (nameRow) {
+            nameRow.classList.add("sidebar__image-row--selected");
+        }
+        if (detailRow) {
+            detailRow.classList.add("sidebar__image-detail--visible");
+            /* Update detail values from the live info. */
+            const cell = detailRow.querySelector("td");
+            if (cell) {
+                const nw = info.naturalWidth || 0;
+                const nh = info.naturalHeight || 0;
+                cell.innerHTML =
+                    `Position: ${info.x}, ${info.y}<br>` +
+                    `Size: ${info.width} &times; ${info.height}<br>` +
+                    `Native: ${nw} &times; ${nh}`;
+            }
         }
     }
 

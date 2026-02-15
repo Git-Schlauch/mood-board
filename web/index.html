@@ -25,6 +25,7 @@
             {
                 onUploadComplete: () => sidebar.refreshImageList(),
                 onChange: () => sidebar.refreshImageList(),
+                onSelectionChange: (info) => sidebar.highlightImage(info),
                 getProjectName: () => sidebar.currentProject
                     ? sidebar.currentProject.name
                     : "Untitled Project",
@@ -32,6 +33,7 @@
         );
 
         const sidebar = new Sidebar(api, {
+            canvas: canvasCtrl,
             onProjectChange: () => {
                 canvasCtrl.clear();
                 canvasCtrl.loadImages();

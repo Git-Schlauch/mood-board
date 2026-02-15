@@ -31,7 +31,7 @@ SQLite layer (`backend/database.py`).
 ### Running the server
 
 ```bash
-python backend/server.py [--port PORT]   # default port: 8031
+.venv/bin/python -m backend.server [--port PORT]   # default port: 8031
 ```
 
 Then open `http://localhost:8031` in a browser.
@@ -51,13 +51,13 @@ mood_board/
 ├── backend/                # Backend Python code
 │   ├── server.py           # HTTP server & API routes
 │   └── database.py         # SQLite database layer
-├── data/                   # Runtime data (not committed)
-│   ├── mood_board.db       # SQLite database
-│   └── <project-name>/    # Uploaded images per project
 ├── docs/                   # Project documentation (markdown)
 │   ├── frontend/
 │   └── backend/
 │       └── database.md
+├── projects
+│   ├── mood_board.db       # SQLite database
+│   └── <project-name>/     # Uploaded images per project
 ├── claude-log/             # Timestamped edit logs
 ├── pyproject.toml          # Python project metadata (uv)
 └── CLAUDE.md               # This file

@@ -1,0 +1,24 @@
+Highlight selected image in sidebar with metadata details
+
+Modified files:
+- backend/database.py: Added native_width and native_height columns to images schema,
+  added ALTER TABLE migration in initialize(), updated add_image() to accept native dims.
+- backend/server.py: Read native_width/native_height from upload JSON body and pass
+  to db.add_image().
+- web/js/api.js: Extract native dimensions from Image element before uploading,
+  added _getNativeDimensions() helper.
+- web/js/canvas.js: Added onSelectionChange callback, _notifySelectionChange() helper,
+  getItemsInfo() and getSelectedImageId() query methods. Notify on select/deselect,
+  drag end, resize end, delete, and clear.
+- web/js/sidebar.js: Accept canvas reference, enriched refreshImageList() with detail
+  rows (position, scaled size, native size), added highlightImage() method and
+  _buildDetailHtml() helper.
+- web/css/style.css: Added styles for .sidebar__image-row--selected,
+  .sidebar__image-detail, and .sidebar__image-detail--visible.
+- web/index.html: Wired onSelectionChange callback and canvas ref to sidebar options.
+
+Created files:
+- scripts/backfill_native_dims.py: One-off script to read PNG/JPEG headers and
+  backfill native_width/native_height for existing image records in the database.
+
+Agent: Opus 4.6

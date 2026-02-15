@@ -40,16 +40,18 @@ CREATE TABLE IF NOT EXISTS settings (
 
 _SCHEMA_IMAGES = """\
 CREATE TABLE IF NOT EXISTS images (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    project_id INTEGER NOT NULL,
-    filename   TEXT    NOT NULL,
-    pos_x      REAL    NOT NULL DEFAULT 0.0,
-    pos_y      REAL    NOT NULL DEFAULT 0.0,
-    scale      REAL    NOT NULL DEFAULT 1.0,
-    rotation   REAL    NOT NULL DEFAULT 0.0,
-    z_index    INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
-    updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id    INTEGER NOT NULL,
+    filename      TEXT    NOT NULL,
+    pos_x         REAL    NOT NULL DEFAULT 0.0,
+    pos_y         REAL    NOT NULL DEFAULT 0.0,
+    scale         REAL    NOT NULL DEFAULT 1.0,
+    rotation      REAL    NOT NULL DEFAULT 0.0,
+    z_index       INTEGER NOT NULL DEFAULT 0,
+    native_width  INTEGER NOT NULL DEFAULT 0,
+    native_height INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
 );
 """
@@ -143,12 +145,24 @@ class Database:
         """Create the database tables if they do not already exist.
 
         Safe to call multiple times thanks to ``CREATE TABLE IF NOT EXISTS``.
+        Also migrates existing databases by adding any missing columns.
         Should be called once at application startup.
         """
         with self.connect() as conn:
             conn.execute(_SCHEMA_PROJECTS)
             conn.execute(_SCHEMA_SETTINGS)
             conn.execute(_SCHEMA_IMAGES)
+
+            # Migrate existing databases: add native dimension columns if
+            # they don't already exist.  SQLite raises OperationalError when
+            # the column is already present, which we silently ignore.
+            for col in ("native_width", "native_height"):
+                try:
+                    conn.execute(
+                        f"ALTER TABLE images ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"
+                    )
+                except sqlite3.OperationalError:
+                    pass
 
     # -- settings ------------------------------------------------------------
 
@@ -377,6 +391,8 @@ class Database:
         scale: float = 1.0,
         rotation: float = 0.0,
         z_index: int = 0,
+        native_width: int = 0,
+        native_height: int = 0,
     ) -> dict[str, Any]:
         """Insert a new image record for a project.
 
@@ -392,6 +408,8 @@ class Database:
             scale: Scale factor (1.0 = original size).
             rotation: Rotation in degrees.
             z_index: Draw order (higher values are drawn on top).
+            native_width: The image's original pixel width.
+            native_height: The image's original pixel height.
 
         Returns:
             A dict of the newly created image row.
@@ -399,9 +417,11 @@ class Database:
         with self.connect() as conn:
             cursor = conn.execute(
                 "INSERT INTO images "
-                "(project_id, filename, pos_x, pos_y, scale, rotation, z_index) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (project_id, filename, pos_x, pos_y, scale, rotation, z_index),
+                "(project_id, filename, pos_x, pos_y, scale, rotation, "
+                "z_index, native_width, native_height) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (project_id, filename, pos_x, pos_y, scale, rotation,
+                 z_index, native_width, native_height),
             )
             row = conn.execute(
                 "SELECT * FROM images WHERE id = ?", (cursor.lastrowid,)
