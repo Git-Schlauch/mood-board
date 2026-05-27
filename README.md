@@ -54,11 +54,15 @@ JavaScript with no frameworks or build tools.
 ### Docker Compose
 
 For Dockge or Docker Compose, copy `.env.example` to `.env`, set
-`MOODBOARD_ADMIN_PASSWORD`, then start the stack:
+`MOODBOARD_ADMIN_PASSWORD`, and keep `PUID`/`PGID` aligned with the Linux user
+that owns the copied project folder. Then start the stack:
 
 ```bash
 docker compose up -d
 ```
+
+Compose stores the SQLite database and uploaded images in `./projects`, so you
+can copy or back up that folder directly.
 
 ## Project Structure
 

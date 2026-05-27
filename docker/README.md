@@ -35,13 +35,20 @@ variables. Optionally set `MOODBOARD_ADMIN_USERNAME`; it defaults to `admin`.
 ```yaml
 MOODBOARD_ADMIN_USERNAME=admin
 MOODBOARD_ADMIN_PASSWORD=choose-a-long-password
+PUID=1000
+PGID=1000
 ```
+
+The Compose stack bind-mounts `./projects` to `/app/projects`. Keep `PUID` and
+`PGID` aligned with the Linux user that owns the copied project folder so the
+container can write the SQLite database and uploaded images.
 
 ## Persistent storage
 
 The container stores the SQLite database (`mood_board.db`) and all uploaded
-images inside `/app/projects`. To keep this data across container restarts,
-mount a host directory to that path:
+images inside `/app/projects`. With the included Compose file this maps to
+`./projects` beside `compose.yaml`. To do the same with `docker run`, mount a
+host directory to that path:
 
 ```bash
 docker run -p 8031:8031 -v /path/on/host:/app/projects mood-board

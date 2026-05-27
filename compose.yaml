@@ -5,6 +5,7 @@ services:
       dockerfile: docker/Dockerfile
     container_name: mood-board
     restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
     environment:
       MOODBOARD_PORT: "8031"
       MOODBOARD_ADMIN_USERNAME: "${MOODBOARD_ADMIN_USERNAME:-admin}"
@@ -12,7 +13,4 @@ services:
     ports:
       - "8031:8031"
     volumes:
-      - mood-board-projects:/app/projects
-
-volumes:
-  mood-board-projects:
+      - ./projects:/app/projects

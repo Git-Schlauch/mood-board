@@ -1,0 +1,14 @@
+Modified compose.yaml:
+- Switched persistent storage from a named Docker volume to a local ./projects bind mount.
+- Added PUID and PGID user mapping defaults for Linux host write permissions.
+
+Modified .env.example:
+- Added PUID and PGID examples.
+
+Modified .gitignore:
+- Added AGENTS.md so the local agent instruction file is ignored by Git.
+
+Modified README.md and docker/README.md:
+- Documented the ./projects bind mount and Linux ownership settings for Docker Compose and Dockge.
+
+Agent: GPT-5 Codex
