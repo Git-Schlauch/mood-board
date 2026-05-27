@@ -1,0 +1,15 @@
+Modified web/js/canvas.js:
+- Added an on-canvas toolbar with image upload, zoom in, zoom out, and reset-view controls.
+- Added file-picker uploads that place images at the current viewport centre.
+- Reworked rendering and interaction around an infinite-canvas camera with pan and zoom.
+- Added mouse wheel zoom around the cursor and empty-canvas drag panning.
+- Converted hit testing, resizing, selection outlines, action panel placement, and uploads to world coordinates.
+- Added an infinite grid background for orientation while panning and zooming.
+
+Modified web/css/style.css:
+- Added toolbar styling and updated the canvas cursor for pan-friendly interaction.
+
+Modified README.md:
+- Documented upload-button, pan, and zoom support.
+
+Agent: GPT-5 Codex

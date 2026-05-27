@@ -117,7 +117,52 @@ html, body {
     height: 100%;
     border: 1px solid #2a2a4a;
     background-color: #16213e;
-    cursor: default;
+    cursor: grab;
+}
+
+/* ===================================================================
+   Canvas toolbar
+   =================================================================== */
+
+.canvas-toolbar {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    background-color: rgba(26, 26, 46, 0.88);
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+}
+
+.canvas-toolbar__btn {
+    min-width: 32px;
+    height: 30px;
+    padding: 0 8px;
+    background-color: #2a2a4a;
+    color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.canvas-toolbar__btn:hover,
+.canvas-toolbar__btn:focus {
+    background-color: #3a3a5a;
+}
+
+.canvas-toolbar__zoom-label {
+    min-width: 54px;
+}
+
+.canvas-toolbar__file {
+    display: none;
 }
 
 /* ===================================================================

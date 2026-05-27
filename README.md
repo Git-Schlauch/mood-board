@@ -8,7 +8,9 @@ zero external dependencies.
 ## Features
 
 - **Drag-and-drop upload** — drop images onto the canvas to add them to a project
+- **Upload button** — add images through a file picker when drag-and-drop is awkward
 - **Free arrangement** — move and resize images anywhere on an infinite pannable canvas
+- **Pan and zoom** — drag the empty canvas to move around and use the mouse wheel to zoom
 - **Z-order controls** — bring images forward or send them back with a floating action panel
 - **Multiple projects** — create, switch between, and rename projects
 - **Login sessions** — users sign in before project and image data is served

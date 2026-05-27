@@ -2,12 +2,10 @@
  * CanvasController — manages the mood board canvas element.
  *
  * Renders images and placeholders on an HTML5 canvas using a 2D drawing
- * context.  Handles drag-and-drop uploads: when files are dropped a white
- * placeholder rectangle (1/3 of the canvas dimensions) is shown immediately
- * at the cursor position while the upload runs in the background.  Once the
- * image is available the placeholder is replaced with the actual image,
- * fitted to the placeholder bounds while preserving the original aspect
- * ratio.  Multiple concurrent uploads are supported.
+ * context.  Maintains a camera transform for infinite-canvas style panning
+ * and zooming while storing item positions in stable world coordinates.
+ * Handles drag-and-drop and button-based uploads with placeholders that are
+ * replaced by loaded images once the backend stores the file.
  */
 class CanvasController {
 
@@ -65,14 +63,38 @@ class CanvasController {
         /** @type {Object|null} The currently selected canvas item. */
         this._selectedItem = null;
 
+        /** @type {number} Horizontal camera offset in canvas pixels. */
+        this._panX = 0;
+
+        /** @type {number} Vertical camera offset in canvas pixels. */
+        this._panY = 0;
+
+        /** @type {number} Current camera zoom factor. */
+        this._zoom = 1;
+
+        /** @type {number} Minimum allowed zoom factor. */
+        this._minZoom = 0.15;
+
+        /** @type {number} Maximum allowed zoom factor. */
+        this._maxZoom = 5;
+
         /** @type {boolean} Whether the user is dragging a selected image. */
         this._dragging = false;
+
+        /** @type {boolean} Whether the user is panning the camera. */
+        this._panning = false;
 
         /** @type {number} Offset from cursor to item origin at drag start. */
         this._dragOffsetX = 0;
 
         /** @type {number} Offset from cursor to item origin at drag start. */
         this._dragOffsetY = 0;
+
+        /** @type {number} Last mouse X in canvas pixels while panning. */
+        this._lastPanX = 0;
+
+        /** @type {number} Last mouse Y in canvas pixels while panning. */
+        this._lastPanY = 0;
 
         /** @type {boolean} Whether the user is resizing a selected image. */
         this._resizing = false;
@@ -100,9 +122,12 @@ class CanvasController {
 
         this._syncCanvasSize();
         this._buildActionPanel();
+        this._buildCanvasToolbar();
         this._bindDragEvents();
         this._bindMouseEvents();
+        this._bindWheelEvent();
         this._bindResizeEvent();
+        this._centerView();
         this._scheduleRender();
     }
 
@@ -165,7 +190,13 @@ class CanvasController {
      */
     _render() {
         const { ctx, canvas } = this;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        this._drawGrid();
+
+        ctx.save();
+        ctx.setTransform(this._zoom, 0, 0, this._zoom, this._panX, this._panY);
 
         for (const item of this._items) {
             if (item.type === "placeholder") {
@@ -181,7 +212,70 @@ class CanvasController {
             }
         }
 
+        ctx.restore();
+
         this._updateActionPanelPosition();
+        this._updateCanvasToolbar();
+    }
+
+    /**
+     * Draw a world-space grid behind all items.
+     *
+     * The grid is computed from the current camera viewport so it appears to
+     * continue indefinitely as the user pans and zooms.
+     * @private
+     */
+    _drawGrid() {
+        const { ctx, canvas } = this;
+        const topLeft = this._canvasToWorld(0, 0);
+        const bottomRight = this._canvasToWorld(canvas.width, canvas.height);
+        const step = this._gridStep();
+        const startX = Math.floor(topLeft.x / step) * step;
+        const endX = Math.ceil(bottomRight.x / step) * step;
+        const startY = Math.floor(topLeft.y / step) * step;
+        const endY = Math.ceil(bottomRight.y / step) * step;
+
+        ctx.save();
+        ctx.setTransform(this._zoom, 0, 0, this._zoom, this._panX, this._panY);
+        ctx.lineWidth = 1 / this._zoom;
+
+        for (let x = startX; x <= endX; x += step) {
+            ctx.strokeStyle = x === 0 ? "rgba(232, 232, 255, 0.22)" : "rgba(232, 232, 255, 0.08)";
+            ctx.beginPath();
+            ctx.moveTo(x, startY);
+            ctx.lineTo(x, endY);
+            ctx.stroke();
+        }
+
+        for (let y = startY; y <= endY; y += step) {
+            ctx.strokeStyle = y === 0 ? "rgba(232, 232, 255, 0.22)" : "rgba(232, 232, 255, 0.08)";
+            ctx.beginPath();
+            ctx.moveTo(startX, y);
+            ctx.lineTo(endX, y);
+            ctx.stroke();
+        }
+
+        ctx.restore();
+    }
+
+    /**
+     * Choose a pleasant grid spacing for the current zoom level.
+     *
+     * @returns {number} Grid step in world units.
+     * @private
+     */
+    _gridStep() {
+        const targetPixels = 80;
+        const rawStep = targetPixels / this._zoom;
+        const power = Math.pow(10, Math.floor(Math.log10(rawStep)));
+        const normalized = rawStep / power;
+        if (normalized < 2) {
+            return power;
+        }
+        if (normalized < 5) {
+            return power * 2;
+        }
+        return power * 5;
     }
 
     /**
@@ -205,22 +299,22 @@ class CanvasController {
         const dashLen = 6;
 
         ctx.save();
-        ctx.lineWidth = 2;
+        ctx.lineWidth = 2 / this._zoom;
 
         /* Black dashes. */
         ctx.strokeStyle = "#000000";
-        ctx.setLineDash([dashLen, dashLen]);
+        ctx.setLineDash([dashLen / this._zoom, dashLen / this._zoom]);
         ctx.lineDashOffset = 0;
         ctx.strokeRect(x, y, w, h);
 
         /* White dashes offset to fill the gaps. */
         ctx.strokeStyle = "#ffffff";
-        ctx.lineDashOffset = dashLen;
+        ctx.lineDashOffset = dashLen / this._zoom;
         ctx.strokeRect(x, y, w, h);
 
         /* Draw corner resize handles — filled white squares with black border. */
         ctx.setLineDash([]);
-        const hs = 8; /* handle visual size */
+        const hs = 8 / this._zoom; /* handle visual size */
         const half = hs / 2;
         const corners = [
             [x - half,     y - half],         /* top-left */
@@ -232,7 +326,7 @@ class CanvasController {
             ctx.fillStyle = "#ffffff";
             ctx.fillRect(cx, cy, hs, hs);
             ctx.strokeStyle = "#000000";
-            ctx.lineWidth = 1;
+            ctx.lineWidth = 1 / this._zoom;
             ctx.strokeRect(cx, cy, hs, hs);
         }
 
@@ -263,6 +357,17 @@ class CanvasController {
     }
 
     /**
+     * Bind wheel zoom around the current cursor position.
+     *
+     * @private
+     */
+    _bindWheelEvent() {
+        this.canvas.addEventListener("wheel", (e) => this._onWheel(e), {
+            passive: false,
+        });
+    }
+
+    /**
      * Handle mousedown: select the topmost image under the cursor.
      *
      * Iterates items in reverse order (last = topmost) and selects the
@@ -278,7 +383,8 @@ class CanvasController {
             return;
         }
 
-        const { x, y } = this._canvasCoords(event);
+        const canvasPoint = this._canvasPoint(event);
+        const { x, y } = this._canvasToWorld(canvasPoint.x, canvasPoint.y);
 
         /* Check if a resize handle of the currently selected item was clicked. */
         const handleHit = this._hitTestHandle(x, y);
@@ -311,6 +417,12 @@ class CanvasController {
             this._dragOffsetX = x - hit.x;
             this._dragOffsetY = y - hit.y;
             this.canvas.style.cursor = "grabbing";
+        } else {
+            event.preventDefault();
+            this._panning = true;
+            this._lastPanX = canvasPoint.x;
+            this._lastPanY = canvasPoint.y;
+            this.canvas.style.cursor = "grabbing";
         }
     }
 
@@ -323,8 +435,19 @@ class CanvasController {
     _onMouseMove(event) {
         /* Handle active resize operation. */
         if (this._resizing && this._selectedItem) {
-            const { x, y } = this._canvasCoords(event);
+            const point = this._canvasPoint(event);
+            const { x, y } = this._canvasToWorld(point.x, point.y);
             this._applyResize(x, y);
+            this._scheduleRender();
+            return;
+        }
+
+        if (this._panning) {
+            const point = this._canvasPoint(event);
+            this._panX += point.x - this._lastPanX;
+            this._panY += point.y - this._lastPanY;
+            this._lastPanX = point.x;
+            this._lastPanY = point.y;
             this._scheduleRender();
             return;
         }
@@ -333,7 +456,8 @@ class CanvasController {
             /* Update cursor style based on hover — only when the event
                target is actually the canvas (listener is on window). */
             if (event.target === this.canvas) {
-                const { x, y } = this._canvasCoords(event);
+                const point = this._canvasPoint(event);
+                const { x, y } = this._canvasToWorld(point.x, point.y);
 
                 /* Resize handle cursors take priority over grab cursor. */
                 const handle = this._hitTestHandle(x, y);
@@ -342,13 +466,14 @@ class CanvasController {
                         (handle === "tl" || handle === "br") ? "nwse-resize" : "nesw-resize";
                 } else {
                     const hover = this._hitTest(x, y);
-                    this.canvas.style.cursor = hover ? "grab" : "default";
+                    this.canvas.style.cursor = hover ? "grab" : "grab";
                 }
             }
             return;
         }
 
-        const { x, y } = this._canvasCoords(event);
+        const point = this._canvasPoint(event);
+        const { x, y } = this._canvasToWorld(point.x, point.y);
         this._selectedItem.x = x - this._dragOffsetX;
         this._selectedItem.y = y - this._dragOffsetY;
         this._scheduleRender();
@@ -467,6 +592,12 @@ class CanvasController {
             return;
         }
 
+        if (this._panning) {
+            this._panning = false;
+            this.canvas.style.cursor = "grab";
+            return;
+        }
+
         if (!this._dragging) {
             return;
         }
@@ -498,6 +629,18 @@ class CanvasController {
      * @private
      */
     _canvasCoords(event) {
+        const point = this._canvasPoint(event);
+        return this._canvasToWorld(point.x, point.y);
+    }
+
+    /**
+     * Convert a mouse event to canvas-buffer coordinates.
+     *
+     * @param {MouseEvent} event - The mouse event.
+     * @returns {{ x: number, y: number }} Canvas-buffer position.
+     * @private
+     */
+    _canvasPoint(event) {
         const rect = this.canvas.getBoundingClientRect();
         /* Scale from CSS pixels to canvas buffer coordinates.  The
            canvas buffer dimensions may differ from the CSS layout size
@@ -506,6 +649,83 @@ class CanvasController {
             x: (event.clientX - rect.left) * (this.canvas.width / rect.width),
             y: (event.clientY - rect.top) * (this.canvas.height / rect.height),
         };
+    }
+
+    /**
+     * Convert canvas-buffer coordinates to world coordinates.
+     *
+     * @param {number} x - Canvas-buffer X coordinate.
+     * @param {number} y - Canvas-buffer Y coordinate.
+     * @returns {{ x: number, y: number }} World-space position.
+     * @private
+     */
+    _canvasToWorld(x, y) {
+        return {
+            x: (x - this._panX) / this._zoom,
+            y: (y - this._panY) / this._zoom,
+        };
+    }
+
+    /**
+     * Convert world coordinates to canvas-buffer coordinates.
+     *
+     * @param {number} x - World X coordinate.
+     * @param {number} y - World Y coordinate.
+     * @returns {{ x: number, y: number }} Canvas-buffer position.
+     * @private
+     */
+    _worldToCanvas(x, y) {
+        return {
+            x: x * this._zoom + this._panX,
+            y: y * this._zoom + this._panY,
+        };
+    }
+
+    /**
+     * Convert world coordinates to CSS pixels relative to the canvas.
+     *
+     * @param {number} x - World X coordinate.
+     * @param {number} y - World Y coordinate.
+     * @returns {{ x: number, y: number }} CSS pixel position.
+     * @private
+     */
+    _worldToCss(x, y) {
+        const rect = this.canvas.getBoundingClientRect();
+        const point = this._worldToCanvas(x, y);
+        return {
+            x: point.x * (rect.width / this.canvas.width),
+            y: point.y * (rect.height / this.canvas.height),
+        };
+    }
+
+    /**
+     * Zoom around the mouse cursor.
+     *
+     * @param {WheelEvent} event - The native wheel event.
+     * @private
+     */
+    _onWheel(event) {
+        event.preventDefault();
+        const point = this._canvasPoint(event);
+        const before = this._canvasToWorld(point.x, point.y);
+        const factor = Math.exp(-event.deltaY * 0.001);
+        this._zoom = Math.max(
+            this._minZoom,
+            Math.min(this._maxZoom, this._zoom * factor)
+        );
+        this._panX = point.x - before.x * this._zoom;
+        this._panY = point.y - before.y * this._zoom;
+        this._scheduleRender();
+    }
+
+    /**
+     * Centre the camera on the world origin.
+     *
+     * @private
+     */
+    _centerView() {
+        this._panX = this.canvas.width / 2;
+        this._panY = this.canvas.height / 2;
     }
 
     /**
@@ -563,7 +783,7 @@ class CanvasController {
         const bw = item.width + pad * 2;
         const bh = item.height + pad * 2;
 
-        const hitSize = 12;
+        const hitSize = 12 / this._zoom;
         const half = hitSize / 2;
 
         const corners = [
@@ -636,14 +856,30 @@ class CanvasController {
             return;
         }
 
-        /* Compute drop position relative to the canvas element. */
-        const rect = this.canvas.getBoundingClientRect();
-        const dropX = event.clientX - rect.left;
-        const dropY = event.clientY - rect.top;
+        const point = this._canvasPoint(event);
+        const drop = this._canvasToWorld(point.x, point.y);
 
         for (const file of files) {
-            this._uploadAndDisplay(file, dropX, dropY);
+            this._uploadAndDisplay(file, drop.x, drop.y);
         }
+    }
+
+    /**
+     * Upload files at the centre of the current viewport.
+     *
+     * @param {FileList|Array<File>} files - Files chosen through the upload button.
+     */
+    uploadFiles(files) {
+        const images = Array.from(files).filter((f) => f.type.startsWith("image/"));
+        if (images.length === 0) {
+            return;
+        }
+
+        const center = this._canvasToWorld(this.canvas.width / 2, this.canvas.height / 2);
+        images.forEach((file, index) => {
+            const offset = index * (24 / this._zoom);
+            this._uploadAndDisplay(file, center.x + offset, center.y + offset);
+        });
     }
 
     /**
@@ -662,8 +898,8 @@ class CanvasController {
      */
     _uploadAndDisplay(file, dropX, dropY) {
         /* Create placeholder. */
-        const placeholderW = this.canvas.width / 3;
-        const placeholderH = this.canvas.height / 3;
+        const placeholderW = (this.canvas.width / this._zoom) / 3;
+        const placeholderH = (this.canvas.height / this._zoom) / 3;
         const item = {
             id: `temp_${this._nextTempId++}`,
             x: dropX - placeholderW / 2,
@@ -866,13 +1102,12 @@ class CanvasController {
 
         this._actionPanel.classList.remove("canvas-actions--hidden");
 
-        const rect = this.canvas.getBoundingClientRect();
-        const scaleX = rect.width / this.canvas.width;
-        const scaleY = rect.height / this.canvas.height;
-
         const item = this._selectedItem;
-        const itemCenterCss = item.x * scaleX + (item.width * scaleX) / 2;
-        const itemTopCss = item.y * scaleY;
+        const topLeft = this._worldToCss(item.x, item.y);
+        const bottomRight = this._worldToCss(item.x + item.width, item.y + item.height);
+        const itemCenterCss = (topLeft.x + bottomRight.x) / 2;
+        const itemTopCss = topLeft.y;
+        const rect = this.canvas.getBoundingClientRect();
 
         /* Measure panel so we can centre it. */
         const panelW = this._actionPanel.offsetWidth;
@@ -888,6 +1123,102 @@ class CanvasController {
 
         this._actionPanel.style.left = left + "px";
         this._actionPanel.style.top = top + "px";
+    }
+
+    /**
+     * Build the canvas toolbar with upload and zoom controls.
+     *
+     * @private
+     */
+    _buildCanvasToolbar() {
+        this._toolbar = document.createElement("div");
+        this._toolbar.className = "canvas-toolbar";
+
+        this._fileInput = document.createElement("input");
+        this._fileInput.type = "file";
+        this._fileInput.accept = "image/png,image/jpeg,image/gif,image/webp";
+        this._fileInput.multiple = true;
+        this._fileInput.className = "canvas-toolbar__file";
+
+        const uploadBtn = this._createToolbarButton("\u2191", "Upload images", () => {
+            this._fileInput.click();
+        });
+        const zoomOutBtn = this._createToolbarButton("-", "Zoom out", () => {
+            this._zoomAtCanvasCenter(1 / 1.2);
+        });
+        const resetBtn = this._createToolbarButton("100%", "Reset view", () => {
+            this._zoom = 1;
+            this._centerView();
+            this._scheduleRender();
+        });
+        resetBtn.classList.add("canvas-toolbar__zoom-label");
+        this._zoomLabel = resetBtn;
+        const zoomInBtn = this._createToolbarButton("+", "Zoom in", () => {
+            this._zoomAtCanvasCenter(1.2);
+        });
+
+        this._fileInput.addEventListener("change", () => {
+            this.uploadFiles(this._fileInput.files);
+            this._fileInput.value = "";
+        });
+
+        this._toolbar.appendChild(uploadBtn);
+        this._toolbar.appendChild(zoomOutBtn);
+        this._toolbar.appendChild(resetBtn);
+        this._toolbar.appendChild(zoomInBtn);
+        this._toolbar.appendChild(this._fileInput);
+        this.canvas.parentElement.appendChild(this._toolbar);
+    }
+
+    /**
+     * Create a toolbar button.
+     *
+     * @param {string} label - Button text.
+     * @param {string} title - Tooltip text.
+     * @param {Function} action - Click handler.
+     * @returns {HTMLButtonElement} Configured button.
+     * @private
+     */
+    _createToolbarButton(label, title, action) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "canvas-toolbar__btn";
+        button.textContent = label;
+        button.title = title;
+        button.addEventListener("click", (event) => {
+            event.stopPropagation();
+            action();
+        });
+        return button;
+    }
+
+    /**
+     * Update toolbar state after rendering.
+     *
+     * @private
+     */
+    _updateCanvasToolbar() {
+        if (this._zoomLabel) {
+            this._zoomLabel.textContent = `${Math.round(this._zoom * 100)}%`;
+        }
+    }
+
+    /**
+     * Zoom around the centre of the canvas.
+     *
+     * @param {number} factor - Multiplicative zoom factor.
+     * @private
+     */
+    _zoomAtCanvasCenter(factor) {
+        const point = { x: this.canvas.width / 2, y: this.canvas.height / 2 };
+        const before = this._canvasToWorld(point.x, point.y);
+        this._zoom = Math.max(
+            this._minZoom,
+            Math.min(this._maxZoom, this._zoom * factor)
+        );
+        this._panX = point.x - before.x * this._zoom;
+        this._panY = point.y - before.y * this._zoom;
+        this._scheduleRender();
     }
 
     /**
@@ -1128,11 +1459,13 @@ class CanvasController {
         this._items = [];
         this._selectedItem = null;
         this._dragging = false;
+        this._panning = false;
         this._resizing = false;
         this._resizeCorner = null;
         this._actionPanel.classList.add("canvas-actions--hidden");
         this._notifySelectionChange();
         this._syncCanvasSize();
+        this._centerView();
         this._scheduleRender();
     }
 
@@ -1170,11 +1503,11 @@ class CanvasController {
             if (record.scale !== 1.0) {
                 /* We don't know the natural size yet — show a small
                    placeholder until the image loads. */
-                item.width = 100;
-                item.height = 100;
+                item.width = 100 / this._zoom;
+                item.height = 100 / this._zoom;
             } else {
-                item.width = this.canvas.width / 3;
-                item.height = this.canvas.height / 3;
+                item.width = (this.canvas.width / this._zoom) / 3;
+                item.height = (this.canvas.height / this._zoom) / 3;
             }
 
             this._items.push(item);
@@ -1197,8 +1530,8 @@ class CanvasController {
                             img.naturalHeight,
                             item.x + item.width / 2,
                             item.y + item.height / 2,
-                            this.canvas.width / 3,
-                            this.canvas.height / 3
+                            (this.canvas.width / this._zoom) / 3,
+                            (this.canvas.height / this._zoom) / 3
                         );
                         item.x = fitted.x;
                         item.y = fitted.y;
