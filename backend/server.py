@@ -69,42 +69,44 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:
         """Route GET requests to API handlers or static file serving."""
-        if self.path == "/api/session":
+        request_path = urllib.parse.urlsplit(self.path).path
+        if request_path == "/api/session":
             self._handle_session()
-        elif self.path.startswith("/api/") and not self._require_authentication():
+        elif request_path.startswith("/api/") and not self._require_authentication():
             return
-        elif self.path.startswith("/projects/") and not self._require_authentication():
+        elif request_path.startswith("/projects/") and not self._require_authentication():
             return
-        elif self.path == "/api/current-project":
+        elif request_path == "/api/current-project":
             self._handle_current_project()
-        elif self.path == "/api/projects":
+        elif request_path == "/api/projects":
             self._handle_list_projects()
-        elif self.path == "/api/images":
+        elif request_path == "/api/images":
             self._handle_list_images()
-        elif self.path.startswith("/projects/"):
+        elif request_path.startswith("/projects/"):
             self._handle_serve_image()
         else:
             super().do_GET()
 
     def do_POST(self) -> None:
         """Route POST requests to the appropriate API handler."""
-        if self.path == "/api/login":
+        request_path = urllib.parse.urlsplit(self.path).path
+        if request_path == "/api/login":
             self._handle_login()
-        elif self.path == "/api/logout":
+        elif request_path == "/api/logout":
             self._handle_logout()
-        elif self.path.startswith("/api/") and not self._require_authentication():
+        elif request_path.startswith("/api/") and not self._require_authentication():
             return
-        elif self.path == "/api/projects/open":
+        elif request_path == "/api/projects/open":
             self._handle_open_project()
-        elif self.path == "/api/projects":
+        elif request_path == "/api/projects":
             self._handle_create_project()
-        elif self.path == "/api/images/upload":
+        elif request_path == "/api/images/upload":
             self._handle_image_upload()
-        elif self.path == "/api/images/update":
+        elif request_path == "/api/images/update":
             self._handle_image_update()
-        elif self.path == "/api/images/delete":
+        elif request_path == "/api/images/delete":
             self._handle_image_delete()
-        elif self.path == "/api/projects/rename":
+        elif request_path == "/api/projects/rename":
             self._handle_rename_project()
         else:
             self.send_error(404)
@@ -298,16 +300,44 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         self._send_json(images)
 
     def _handle_image_upload(self) -> None:
-        """Accept a base64-encoded image upload and save it to disk.
+        """Accept an image upload and save it to disk.
 
         ``POST /api/images/upload``
 
-        Expects a JSON body with ``{"filename": "<string>", "data": "<base64>"}``
-        where *data* is the raw file content encoded as base64.  The file is
-        saved into the current project's directory.  Filename conflicts are
-        resolved by appending a numeric suffix (e.g. ``photo_1.png``).
+        Preferred requests send the raw image bytes as the body with
+        ``filename``, ``native_width``, and ``native_height`` query parameters.
+        The legacy JSON/base64 format remains accepted for compatibility.  The
+        file is saved into the current project's directory.  Filename conflicts
+        are resolved by appending a numeric suffix (e.g. ``photo_1.png``).
 
         Returns the created image database record on success.
+        """
+        content_type = self.headers.get("Content-Type", "")
+        if content_type.startswith("application/json"):
+            self._handle_json_image_upload()
+            return
+
+        parsed = urllib.parse.urlsplit(self.path)
+        query = urllib.parse.parse_qs(parsed.query)
+        filename = query.get("filename", [""])[0]
+        native_width = query.get("native_width", ["0"])[0]
+        native_height = query.get("native_height", ["0"])[0]
+        file_bytes = self._read_binary_body()
+        if file_bytes is None:
+            return
+
+        self._save_uploaded_image(
+            filename, file_bytes, native_width=native_width, native_height=native_height
+        )
+
+    def _handle_json_image_upload(self) -> None:
+        """Accept a legacy base64-encoded JSON image upload.
+
+        ``POST /api/images/upload``
+
+        Expects a JSON body with ``{"filename": "<string>", "data": "<base64>"}``.
+        This exists for compatibility with older clients; the browser now uses
+        binary uploads to reduce memory pressure.
         """
         body = self._read_json_body()
         if body is None:
@@ -329,6 +359,28 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "Invalid base64 data"}, status=400)
             return
 
+        self._save_uploaded_image(
+            filename,
+            file_bytes,
+            native_width=body.get("native_width", 0),
+            native_height=body.get("native_height", 0),
+        )
+
+    def _save_uploaded_image(
+        self,
+        filename: str,
+        file_bytes: bytes,
+        native_width: int | str = 0,
+        native_height: int | str = 0,
+    ) -> None:
+        """Validate, persist, and record an uploaded image.
+
+        Args:
+            filename: Original filename from the client.
+            file_bytes: Raw decoded image payload.
+            native_width: Optional original image width.
+            native_height: Optional original image height.
+        """
         filename = os.path.basename(filename)
         if not filename:
             self._send_json({"error": "Invalid filename"}, status=400)
@@ -353,8 +405,12 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             fh.write(file_bytes)
 
         # Extract optional native dimensions sent by the frontend.
-        native_width = int(body.get("native_width", 0))
-        native_height = int(body.get("native_height", 0))
+        try:
+            native_width = int(native_width or 0)
+            native_height = int(native_height or 0)
+        except (TypeError, ValueError):
+            self._send_json({"error": "Invalid native dimensions"}, status=400)
+            return
 
         # Record in the database.
         image = self.db.add_image(
@@ -568,6 +624,20 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         except json.JSONDecodeError:
             self._send_json({"error": "Invalid JSON"}, status=400)
             return None
+
+    def _read_binary_body(self) -> bytes | None:
+        """Read the request body as raw bytes.
+
+        Sends a 400 error and returns ``None`` if the request body is empty.
+
+        Returns:
+            The request body bytes, or ``None`` on failure.
+        """
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length == 0:
+            self._send_json({"error": "Empty upload body"}, status=400)
+            return None
+        return self.rfile.read(content_length)
 
     def log_message(self, format: str, *args: Any) -> None:
         """Write log messages to stderr with a cleaner format."""

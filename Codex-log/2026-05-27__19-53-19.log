@@ -1,0 +1,13 @@
+Modified web/js/api.js:
+- Changed image uploads from base64 JSON payloads to direct binary file uploads with query metadata.
+- Removed the FileReader base64 conversion path to reduce browser memory pressure, especially in Firefox.
+
+Modified backend/server.py:
+- Routed API requests by parsed path so upload URLs can include query parameters.
+- Added binary image upload handling while keeping the legacy JSON/base64 endpoint compatible.
+- Added raw request-body reading and shared upload validation/persistence logic.
+
+Modified .gitignore:
+- Added .DS_Store to keep local macOS metadata out of commits.
+
+Agent: GPT-5 Codex

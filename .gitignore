@@ -3,3 +3,4 @@ __pycache__/
 *.pyc
 projects/
 AGENTS.md
+.DS_Store
