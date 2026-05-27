@@ -388,6 +388,15 @@ html, body {
     background-color: #3a3a5a;
 }
 
+.canvas-actions__btn--active {
+    background-color: #0f3460;
+    border-color: #154985;
+}
+
+.canvas-actions__btn--hidden {
+    display: none;
+}
+
 .canvas-actions__btn--delete:hover {
     background-color: #6b2020;
     border-color: #8b3030;

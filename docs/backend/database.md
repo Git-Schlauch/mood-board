@@ -57,6 +57,7 @@ The `backend/database.py` module provides all persistent storage for the mood bo
 | `z_index`    | INTEGER | Draw order (higher = on top)             |
 | `native_width` | INTEGER | Original image width                   |
 | `native_height` | INTEGER | Original image height                 |
+| `loop_enabled` | INTEGER | Animated GIF/WebM playback flag       |
 | `created_at` | TEXT    | ISO 8601 timestamp                       |
 | `updated_at` | TEXT    | ISO 8601 timestamp                       |
 

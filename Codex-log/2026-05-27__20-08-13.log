@@ -1,0 +1,27 @@
+Modified backend/database.py:
+- Added loop_enabled to image records with default enabled playback.
+- Allowed loop_enabled updates through the existing image update path.
+
+Modified backend/server.py:
+- Allowed WebM uploads and serving with video/webm content type.
+- Included loop_enabled in accepted image update fields.
+- Updated upload validation messaging for PNG, JPEG, GIF, WebP, and WebM.
+
+Modified web/js/api.js:
+- Added WebM metadata probing through a temporary video element.
+- Documented loop_enabled image updates.
+
+Modified web/js/canvas.js:
+- Allowed drag-and-drop and picker uploads for WebM files.
+- Loaded GIFs as animated images and WebMs as muted looping video elements.
+- Added per-item continuous playback toggle for GIF/WebM items in the action panel.
+- Persisted playback toggle state through loop_enabled.
+- Added continuous canvas redraw while animated media playback is enabled.
+
+Modified web/css/style.css:
+- Added active and hidden states for the playback toggle action button.
+
+Modified README.md, docs/backend/database.md, and docs/security.md:
+- Documented animated media, WebM support, and loop_enabled persistence.
+
+Agent: GPT-5 Codex

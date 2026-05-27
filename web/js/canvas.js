@@ -60,6 +60,9 @@ class CanvasController {
         /** @type {boolean} Whether a render has been scheduled. */
         this._renderScheduled = false;
 
+        /** @type {boolean} Whether a continuous media render loop is active. */
+        this._mediaRenderLoopActive = false;
+
         /** @type {Object|null} The currently selected canvas item. */
         this._selectedItem = null;
 
@@ -202,8 +205,11 @@ class CanvasController {
             if (item.type === "placeholder") {
                 ctx.fillStyle = "#ffffff";
                 ctx.fillRect(item.x, item.y, item.width, item.height);
-            } else if (item.type === "image" && item.img) {
-                ctx.drawImage(item.img, item.x, item.y, item.width, item.height);
+            } else if (item.type === "image") {
+                const source = this._drawableSource(item);
+                if (source) {
+                    ctx.drawImage(source, item.x, item.y, item.width, item.height);
+                }
             }
 
             /* Draw selection outline for the selected item. */
@@ -216,6 +222,7 @@ class CanvasController {
 
         this._updateActionPanelPosition();
         this._updateCanvasToolbar();
+        this._syncMediaRenderLoop();
     }
 
     /**
@@ -276,6 +283,59 @@ class CanvasController {
             return power * 2;
         }
         return power * 5;
+    }
+
+    /**
+     * Return the drawable media source for an item.
+     *
+     * Animated GIFs can be frozen by drawing a captured canvas snapshot.
+     * WebM videos draw their HTMLVideoElement while playback is enabled and a
+     * snapshot when playback is disabled.
+     *
+     * @param {Object} item - Canvas item to draw.
+     * @returns {CanvasImageSource|null} Source drawable by canvas drawImage.
+     * @private
+     */
+    _drawableSource(item) {
+        if (!item.loopEnabled && item.frozenFrame) {
+            return item.frozenFrame;
+        }
+        if (item.mediaKind === "video") {
+            return item.media && item.media.readyState >= 2 ? item.media : item.frozenFrame;
+        }
+        return item.media || item.img || null;
+    }
+
+    /**
+     * Keep rendering while animated media playback is enabled.
+     *
+     * @private
+     */
+    _syncMediaRenderLoop() {
+        const shouldRun = this._items.some((item) =>
+            item.type === "image" &&
+            item.loopEnabled &&
+            (item.mediaKind === "video" || item.mediaKind === "gif")
+        );
+        if (shouldRun && !this._mediaRenderLoopActive) {
+            this._mediaRenderLoopActive = true;
+            requestAnimationFrame(() => this._mediaRenderTick());
+        } else if (!shouldRun) {
+            this._mediaRenderLoopActive = false;
+        }
+    }
+
+    /**
+     * Render one frame of the continuous media loop.
+     *
+     * @private
+     */
+    _mediaRenderTick() {
+        if (!this._mediaRenderLoopActive) {
+            return;
+        }
+        this._scheduleRender();
+        requestAnimationFrame(() => this._mediaRenderTick());
     }
 
     /**
@@ -576,8 +636,9 @@ class CanvasController {
             this._resizeCorner = null;
             this.canvas.style.cursor = "default";
 
-            if (item && item.imageRecord && item.img) {
-                const newScale = item.width / item.img.naturalWidth;
+            if (item && item.imageRecord && item.media) {
+                const natural = this._mediaNaturalSize(item.media);
+                const newScale = item.width / natural.width;
                 this.api.updateImage(item.imageRecord.id, {
                     pos_x: item.x,
                     pos_y: item.y,
@@ -849,7 +910,7 @@ class CanvasController {
      */
     _handleDrop(event) {
         const files = Array.from(event.dataTransfer.files).filter((f) =>
-            f.type.startsWith("image/")
+            this._isSupportedUploadFile(f)
         );
 
         if (files.length === 0) {
@@ -870,7 +931,7 @@ class CanvasController {
      * @param {FileList|Array<File>} files - Files chosen through the upload button.
      */
     uploadFiles(files) {
-        const images = Array.from(files).filter((f) => f.type.startsWith("image/"));
+        const images = Array.from(files).filter((f) => this._isSupportedUploadFile(f));
         if (images.length === 0) {
             return;
         }
@@ -883,6 +944,20 @@ class CanvasController {
     }
 
     /**
+     * Return whether a file can be uploaded to the mood board.
+     *
+     * @param {File} file - Candidate upload file.
+     * @returns {boolean} ``true`` for supported images and WebM videos.
+     * @private
+     */
+    _isSupportedUploadFile(file) {
+        const name = file.name.toLowerCase();
+        return file.type.startsWith("image/") ||
+            file.type === "video/webm" ||
+            name.endsWith(".webm");
+    }
+
+    /**
      * Upload a single file and transition its placeholder to a real image.
      *
      * 1. Create a white placeholder centred on (dropX, dropY).
@@ -891,7 +966,7 @@ class CanvasController {
      * 4. Fit the image into the placeholder bounds (aspect ratio preserved).
      * 5. Persist the computed position back to the database.
      *
-     * @param {File} file - The image file to upload.
+     * @param {File} file - The image or WebM file to upload.
      * @param {number} dropX - X position of the drop in canvas coordinates.
      * @param {number} dropY - Y position of the drop in canvas coordinates.
      * @private
@@ -907,6 +982,10 @@ class CanvasController {
             width: placeholderW,
             height: placeholderH,
             type: "placeholder",
+            media: null,
+            mediaKind: "image",
+            loopEnabled: true,
+            frozenFrame: null,
             img: null,
             imageRecord: null,
         };
@@ -918,13 +997,16 @@ class CanvasController {
         this.api.uploadImage(file)
             .then((record) => {
                 item.imageRecord = record;
-                return this._loadImage(record);
+                item.loopEnabled = this._recordLoopEnabled(record);
+                item.mediaKind = this._mediaKind(record);
+                return this._loadMedia(record);
             })
-            .then((img) => {
+            .then((media) => {
                 /* Fit image within the placeholder bounds. */
+                const natural = this._mediaNaturalSize(media);
                 const fitted = this._fitImage(
-                    img.naturalWidth,
-                    img.naturalHeight,
+                    natural.width,
+                    natural.height,
                     item.x + item.width / 2,
                     item.y + item.height / 2,
                     placeholderW,
@@ -932,12 +1014,14 @@ class CanvasController {
                 );
 
                 item.type = "image";
-                item.img = img;
+                item.media = media;
+                item.img = media;
                 item.x = fitted.x;
                 item.y = fitted.y;
                 item.width = fitted.width;
                 item.height = fitted.height;
                 item.id = item.imageRecord.id;
+                this._applyMediaPlayback(item);
 
                 this._scheduleRender();
 
@@ -945,7 +1029,7 @@ class CanvasController {
                 this.api.updateImage(item.imageRecord.id, {
                     pos_x: item.x,
                     pos_y: item.y,
-                    scale: item.width / img.naturalWidth,
+                    scale: item.width / natural.width,
                 }).catch((err) => {
                     console.error("Failed to persist image position:", err);
                 });
@@ -971,13 +1055,27 @@ class CanvasController {
      * ------------------------------------------------------------------ */
 
     /**
-     * Load an image from the server given an image database record.
+     * Load media from the server given an image database record.
      *
      * Builds the URL from the current project name and the record's
-     * filename, then returns a promise that resolves with the loaded
-     * HTMLImageElement.
+     * filename, then returns a promise that resolves with the loaded image or
+     * video element.
      *
      * @param {Object} record - The image database record (needs ``filename``).
+     * @returns {Promise<HTMLImageElement|HTMLVideoElement>} The loaded media element.
+     * @private
+     */
+    _loadMedia(record) {
+        if (this._mediaKind(record) === "video") {
+            return this._loadVideo(record);
+        }
+        return this._loadImage(record);
+    }
+
+    /**
+     * Load an image from the server given an image database record.
+     *
+     * @param {Object} record - The image database record.
      * @returns {Promise<HTMLImageElement>} The loaded image element.
      * @private
      */
@@ -992,6 +1090,124 @@ class CanvasController {
                 : "Untitled Project";
             img.src = `/projects/${encodeURIComponent(projectName)}/${encodeURIComponent(record.filename)}`;
         });
+    }
+
+    /**
+     * Load a WebM video from the server given an image database record.
+     *
+     * @param {Object} record - The image database record.
+     * @returns {Promise<HTMLVideoElement>} The loaded video element.
+     * @private
+     */
+    _loadVideo(record) {
+        return new Promise((resolve, reject) => {
+            const video = document.createElement("video");
+            video.muted = true;
+            video.playsInline = true;
+            video.preload = "auto";
+            video.onloadeddata = () => resolve(video);
+            video.onerror = () => reject(new Error(`Failed to load video: ${record.filename}`));
+
+            const projectName = this._getProjectName
+                ? this._getProjectName()
+                : "Untitled Project";
+            video.src = `/projects/${encodeURIComponent(projectName)}/${encodeURIComponent(record.filename)}`;
+            video.load();
+        });
+    }
+
+    /**
+     * Determine the media kind for an image record.
+     *
+     * @param {Object} record - Image database record.
+     * @returns {string} ``video``, ``gif``, or ``image``.
+     * @private
+     */
+    _mediaKind(record) {
+        const filename = (record.filename || "").toLowerCase();
+        if (filename.endsWith(".webm")) {
+            return "video";
+        }
+        if (filename.endsWith(".gif")) {
+            return "gif";
+        }
+        return "image";
+    }
+
+    /**
+     * Return whether looped playback is enabled for a record.
+     *
+     * @param {Object} record - Image database record.
+     * @returns {boolean} ``true`` when animated media should play.
+     * @private
+     */
+    _recordLoopEnabled(record) {
+        return record.loop_enabled === undefined || Boolean(record.loop_enabled);
+    }
+
+    /**
+     * Read natural dimensions from an image or video element.
+     *
+     * @param {HTMLImageElement|HTMLVideoElement} media - Loaded media element.
+     * @returns {{width: number, height: number}} Native media dimensions.
+     * @private
+     */
+    _mediaNaturalSize(media) {
+        return {
+            width: media.videoWidth || media.naturalWidth || 1,
+            height: media.videoHeight || media.naturalHeight || 1,
+        };
+    }
+
+    /**
+     * Apply the loop/playback state to loaded animated media.
+     *
+     * WebM videos are played or paused directly.  GIFs cannot be reliably
+     * paused by browsers, so the off state uses a captured canvas frame.
+     *
+     * @param {Object} item - Canvas item with loaded media.
+     * @private
+     */
+    _applyMediaPlayback(item) {
+        item.frozenFrame = item.loopEnabled ? null : this._captureMediaFrame(item);
+
+        if (item.mediaKind !== "video" || !item.media) {
+            this._scheduleRender();
+            return;
+        }
+
+        item.media.loop = item.loopEnabled;
+        if (item.loopEnabled) {
+            item.media.muted = true;
+            item.media.play().catch((err) => {
+                console.error("Failed to start WebM playback:", err);
+            });
+        } else {
+            item.media.pause();
+        }
+        this._scheduleRender();
+    }
+
+    /**
+     * Capture the current media frame for paused animated rendering.
+     *
+     * @param {Object} item - Canvas item with loaded media.
+     * @returns {HTMLCanvasElement|null} Frozen frame canvas, or ``null``.
+     * @private
+     */
+    _captureMediaFrame(item) {
+        const source = item.media || item.img;
+        const natural = source ? this._mediaNaturalSize(source) : { width: 0, height: 0 };
+        if (!source || natural.width <= 0 || natural.height <= 0) {
+            return null;
+        }
+
+        const frame = document.createElement("canvas");
+        frame.width = natural.width;
+        frame.height = natural.height;
+        const frameCtx = frame.getContext("2d");
+        frameCtx.drawImage(source, 0, 0, frame.width, frame.height);
+        return frame;
     }
 
     /**
@@ -1067,6 +1283,16 @@ class CanvasController {
             this._actionPanel.appendChild(btn);
         }
 
+        this._loopBtn = document.createElement("button");
+        this._loopBtn.className = "canvas-actions__btn canvas-actions__btn--loop";
+        this._loopBtn.textContent = "\u221e";
+        this._loopBtn.title = "Toggle continuous playback";
+        this._loopBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this._toggleSelectedLoop();
+        });
+        this._actionPanel.appendChild(this._loopBtn);
+
         /* Visual separator before the delete button. */
         const sep = document.createElement("div");
         sep.className = "canvas-actions__separator";
@@ -1101,6 +1327,7 @@ class CanvasController {
         }
 
         this._actionPanel.classList.remove("canvas-actions--hidden");
+        this._updateActionPanelButtons();
 
         const item = this._selectedItem;
         const topLeft = this._worldToCss(item.x, item.y);
@@ -1126,6 +1353,26 @@ class CanvasController {
     }
 
     /**
+     * Update action panel buttons for the selected item.
+     *
+     * @private
+     */
+    _updateActionPanelButtons() {
+        if (!this._loopBtn || !this._selectedItem) {
+            return;
+        }
+        const animated = this._isLoopControllable(this._selectedItem);
+        this._loopBtn.classList.toggle("canvas-actions__btn--hidden", !animated);
+        this._loopBtn.classList.toggle(
+            "canvas-actions__btn--active",
+            animated && this._selectedItem.loopEnabled
+        );
+        this._loopBtn.title = this._selectedItem.loopEnabled
+            ? "Turn continuous playback off"
+            : "Turn continuous playback on";
+    }
+
+    /**
      * Build the canvas toolbar with upload and zoom controls.
      *
      * @private
@@ -1136,11 +1383,11 @@ class CanvasController {
 
         this._fileInput = document.createElement("input");
         this._fileInput.type = "file";
-        this._fileInput.accept = "image/png,image/jpeg,image/gif,image/webp";
+        this._fileInput.accept = "image/png,image/jpeg,image/gif,image/webp,video/webm";
         this._fileInput.multiple = true;
         this._fileInput.className = "canvas-toolbar__file";
 
-        const uploadBtn = this._createToolbarButton("\u2191", "Upload images", () => {
+        const uploadBtn = this._createToolbarButton("\u2191", "Upload media", () => {
             this._fileInput.click();
         });
         const zoomOutBtn = this._createToolbarButton("-", "Zoom out", () => {
@@ -1356,6 +1603,45 @@ class CanvasController {
         }
     }
 
+    /**
+     * Toggle continuous playback for the selected animated item.
+     *
+     * GIFs and WebM videos default to enabled playback.  Turning playback off
+     * freezes the current canvas frame and persists the choice.
+     * @private
+     */
+    _toggleSelectedLoop() {
+        const item = this._selectedItem;
+        if (!this._isLoopControllable(item)) {
+            return;
+        }
+
+        item.loopEnabled = !item.loopEnabled;
+        if (item.imageRecord) {
+            item.imageRecord.loop_enabled = item.loopEnabled ? 1 : 0;
+            this.api.updateImage(item.imageRecord.id, {
+                loop_enabled: item.imageRecord.loop_enabled,
+            }).catch((err) => {
+                console.error("Failed to persist playback setting:", err);
+            });
+        }
+
+        this._applyMediaPlayback(item);
+        this._updateActionPanelButtons();
+        this._scheduleRender();
+    }
+
+    /**
+     * Return whether an item supports continuous playback toggling.
+     *
+     * @param {Object|null} item - Canvas item to inspect.
+     * @returns {boolean} ``true`` for GIF and WebM items.
+     * @private
+     */
+    _isLoopControllable(item) {
+        return Boolean(item && (item.mediaKind === "gif" || item.mediaKind === "video"));
+    }
+
     /* ------------------------------------------------------------------
      *  Selection notification & query helpers
      * ------------------------------------------------------------------ */
@@ -1383,8 +1669,8 @@ class CanvasController {
             y: Math.round(item.y),
             width: Math.round(item.width),
             height: Math.round(item.height),
-            naturalWidth: item.img ? item.img.naturalWidth : 0,
-            naturalHeight: item.img ? item.img.naturalHeight : 0,
+            naturalWidth: item.media ? this._mediaNaturalSize(item.media).width : 0,
+            naturalHeight: item.media ? this._mediaNaturalSize(item.media).height : 0,
         });
     }
 
@@ -1406,8 +1692,8 @@ class CanvasController {
                     y: Math.round(item.y),
                     width: Math.round(item.width),
                     height: Math.round(item.height),
-                    naturalWidth: item.img ? item.img.naturalWidth : 0,
-                    naturalHeight: item.img ? item.img.naturalHeight : 0,
+                    naturalWidth: item.media ? this._mediaNaturalSize(item.media).width : 0,
+                    naturalHeight: item.media ? this._mediaNaturalSize(item.media).height : 0,
                 });
             }
         }
@@ -1493,6 +1779,10 @@ class CanvasController {
                 width: 0,
                 height: 0,
                 type: "placeholder",
+                media: null,
+                mediaKind: this._mediaKind(record),
+                loopEnabled: this._recordLoopEnabled(record),
+                frozenFrame: null,
                 img: null,
                 imageRecord: record,
             };
@@ -1514,20 +1804,22 @@ class CanvasController {
             this._scheduleRender();
 
             /* Load the actual image asynchronously. */
-            this._loadImage(record)
-                .then((img) => {
+            this._loadMedia(record)
+                .then((media) => {
                     item.type = "image";
-                    item.img = img;
+                    item.media = media;
+                    item.img = media;
+                    const natural = this._mediaNaturalSize(media);
 
                     if (record.scale !== 1.0) {
                         /* Use stored scale to compute display size. */
-                        item.width = img.naturalWidth * record.scale;
-                        item.height = img.naturalHeight * record.scale;
+                        item.width = natural.width * record.scale;
+                        item.height = natural.height * record.scale;
                     } else {
                         /* First load — fit into placeholder bounds. */
                         const fitted = this._fitImage(
-                            img.naturalWidth,
-                            img.naturalHeight,
+                            natural.width,
+                            natural.height,
                             item.x + item.width / 2,
                             item.y + item.height / 2,
                             (this.canvas.width / this._zoom) / 3,
@@ -1539,6 +1831,7 @@ class CanvasController {
                         item.height = fitted.height;
                     }
 
+                    this._applyMediaPlayback(item);
                     this._scheduleRender();
                 })
                 .catch((err) => {

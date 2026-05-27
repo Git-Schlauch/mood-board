@@ -387,7 +387,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             return
         if not self._is_supported_image_upload(filename, file_bytes):
             self._send_json(
-                {"error": "Only PNG, JPEG, GIF, and WebP images are supported"},
+                {"error": "Only PNG, JPEG, GIF, WebP, and WebM files are supported"},
                 status=400,
             )
             return
@@ -453,8 +453,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
 
         Expects a JSON body with ``{"image_id": <int>, ...fields}`` where
         the additional fields are any subset of ``pos_x``, ``pos_y``,
-        ``scale``, ``rotation``, ``z_index``.  Returns the updated image
-        record on success, or 404 if the image does not exist.
+        ``scale``, ``rotation``, ``z_index``, ``loop_enabled``.  Returns the
+        updated image record on success, or 404 if the image does not exist.
         """
         body = self._read_json_body()
         if body is None:
@@ -468,7 +468,14 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         # Extract only the updatable fields from the body.
         fields = {
             k: v for k, v in body.items()
-            if k in ("pos_x", "pos_y", "scale", "rotation", "z_index")
+            if k in (
+                "pos_x",
+                "pos_y",
+                "scale",
+                "rotation",
+                "z_index",
+                "loop_enabled",
+            )
         }
         if not fields:
             self._send_json({"error": "No updatable fields provided"}, status=400)
@@ -567,7 +574,10 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         # Determine content type from file extension.
         content_type, _ = mimetypes.guess_type(filename)
         if content_type is None:
-            content_type = "application/octet-stream"
+            if filename.lower().endswith(".webm"):
+                content_type = "video/webm"
+            else:
+                content_type = "application/octet-stream"
 
         try:
             with open(file_path, "rb") as fh:
@@ -742,7 +752,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             file_bytes: Decoded file content.
 
         Returns:
-            ``True`` for PNG, JPEG, GIF, or WebP uploads.
+            ``True`` for PNG, JPEG, GIF, WebP, or WebM uploads.
         """
         ext = os.path.splitext(filename)[1].lower()
         signatures = {
@@ -753,6 +763,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         }
         if ext == ".webp":
             return file_bytes.startswith(b"RIFF") and file_bytes[8:12] == b"WEBP"
+        if ext == ".webm":
+            return file_bytes.startswith(b"\x1a\x45\xdf\xa3")
         return any(file_bytes.startswith(signature) for signature in signatures.get(ext, ()))
 
 

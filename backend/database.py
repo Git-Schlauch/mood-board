@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS images (
     z_index       INTEGER NOT NULL DEFAULT 0,
     native_width  INTEGER NOT NULL DEFAULT 0,
     native_height INTEGER NOT NULL DEFAULT 0,
+    loop_enabled  INTEGER NOT NULL DEFAULT 1,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -93,7 +94,14 @@ CREATE TABLE IF NOT EXISTS images (
 """
 
 # Whitelist of columns that callers may update via update_image().
-_IMAGE_UPDATABLE_FIELDS: set[str] = {"pos_x", "pos_y", "scale", "rotation", "z_index"}
+_IMAGE_UPDATABLE_FIELDS: set[str] = {
+    "pos_x",
+    "pos_y",
+    "scale",
+    "rotation",
+    "z_index",
+    "loop_enabled",
+}
 
 # Pattern for valid project names (alphanumeric, hyphens, underscores, spaces).
 _SAFE_NAME_RE = re.compile(r"^[\w\- ]+$")
@@ -202,6 +210,7 @@ class Database:
             migrations = (
                 "ALTER TABLE images ADD COLUMN native_width INTEGER NOT NULL DEFAULT 0",
                 "ALTER TABLE images ADD COLUMN native_height INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE images ADD COLUMN loop_enabled INTEGER NOT NULL DEFAULT 1",
                 "ALTER TABLE projects ADD COLUMN user_id INTEGER",
             )
             for statement in migrations:
@@ -671,6 +680,7 @@ class Database:
         z_index: int = 0,
         native_width: int = 0,
         native_height: int = 0,
+        loop_enabled: int = 1,
     ) -> dict[str, Any]:
         """Insert a new image record for a project.
 
@@ -688,6 +698,7 @@ class Database:
             z_index: Draw order (higher values are drawn on top).
             native_width: The image's original pixel width.
             native_height: The image's original pixel height.
+            loop_enabled: Whether animated media should loop by default.
 
         Returns:
             A dict of the newly created image row.
@@ -696,10 +707,10 @@ class Database:
             cursor = conn.execute(
                 "INSERT INTO images "
                 "(project_id, filename, pos_x, pos_y, scale, rotation, "
-                "z_index, native_width, native_height) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "z_index, native_width, native_height, loop_enabled) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (project_id, filename, pos_x, pos_y, scale, rotation,
-                 z_index, native_width, native_height),
+                 z_index, native_width, native_height, loop_enabled),
             )
             row = conn.execute(
                 "SELECT * FROM images WHERE id = ?", (cursor.lastrowid,)

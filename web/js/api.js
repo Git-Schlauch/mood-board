@@ -125,7 +125,7 @@ class ApiClient {
     }
 
     /**
-     * Upload an image file to the current project.
+     * Upload an image or WebM file to the current project.
      *
      * Extracts the native pixel dimensions by loading the file into a
      * temporary Image element, then streams the original binary file to the
@@ -136,7 +136,7 @@ class ApiClient {
      * @returns {Promise<Object>} The created image record.
      */
     async uploadImage(file) {
-        const dims = await this._getNativeDimensions(file);
+        const dims = await this._getNativeMediaDimensions(file);
         const params = new URLSearchParams({
             filename: file.name,
             native_width: String(dims.width),
@@ -153,16 +153,31 @@ class ApiClient {
     }
 
     /**
-     * Load a File into a temporary Image element to read its native dimensions.
+     * Load a File into temporary media to read its native dimensions.
      *
-     * Creates an object URL from the file, waits for the image to load,
-     * reads naturalWidth/naturalHeight, then revokes the URL to free memory.
+     * Creates an object URL from the file, waits for an image or video to load
+     * enough metadata, reads its natural dimensions, then revokes the URL to
+     * free memory.
+     *
+     * @param {File} file - The image or WebM file.
+     * @returns {Promise<{width: number, height: number}>} Native pixel dimensions.
+     * @private
+     */
+    _getNativeMediaDimensions(file) {
+        if (file.type === "video/webm" || file.name.toLowerCase().endsWith(".webm")) {
+            return this._getNativeVideoDimensions(file);
+        }
+        return this._getNativeImageDimensions(file);
+    }
+
+    /**
+     * Load an image File to read its native dimensions.
      *
      * @param {File} file - The image file.
      * @returns {Promise<{width: number, height: number}>} Native pixel dimensions.
      * @private
      */
-    _getNativeDimensions(file) {
+    _getNativeImageDimensions(file) {
         return new Promise((resolve) => {
             const url = URL.createObjectURL(file);
             const img = new Image();
@@ -181,6 +196,32 @@ class ApiClient {
     }
 
     /**
+     * Load a WebM File to read its native video dimensions.
+     *
+     * @param {File} file - The WebM file.
+     * @returns {Promise<{width: number, height: number}>} Native pixel dimensions.
+     * @private
+     */
+    _getNativeVideoDimensions(file) {
+        return new Promise((resolve) => {
+            const url = URL.createObjectURL(file);
+            const video = document.createElement("video");
+            video.preload = "metadata";
+            video.onloadedmetadata = () => {
+                const width = video.videoWidth;
+                const height = video.videoHeight;
+                URL.revokeObjectURL(url);
+                resolve({ width, height });
+            };
+            video.onerror = () => {
+                URL.revokeObjectURL(url);
+                resolve({ width: 0, height: 0 });
+            };
+            video.src = url;
+        });
+    }
+
+    /**
      * Fetch all images for the current project.
      *
      * @returns {Promise<Array<Object>>} An array of image objects ordered
@@ -194,8 +235,8 @@ class ApiClient {
     /**
      * Update fields on an existing image record.
      *
-     * Sends the provided fields (pos_x, pos_y, scale, rotation, z_index)
-     * to the backend which persists them in the database.
+     * Sends the provided fields (pos_x, pos_y, scale, rotation, z_index, or
+     * loop_enabled) to the backend which persists them in the database.
      *
      * @param {number} imageId - The image record ID.
      * @param {Object} fields - An object with one or more updatable keys.

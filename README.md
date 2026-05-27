@@ -8,7 +8,8 @@ zero external dependencies.
 ## Features
 
 - **Drag-and-drop upload** — drop images onto the canvas to add them to a project
-- **Upload button** — add images through a file picker when drag-and-drop is awkward
+- **Upload button** — add images and WebM clips through a file picker when drag-and-drop is awkward
+- **Animated media** — GIF and WebM playback loops by default and can be toggled per item
 - **Free arrangement** — move and resize images anywhere on an infinite pannable canvas
 - **Pan and zoom** — drag the empty canvas to move around and use the mouse wheel to zoom
 - **Z-order controls** — bring images forward or send them back with a floating action panel
@@ -98,7 +99,7 @@ mood_board/
 Built with plain HTML, CSS, and JavaScript — no frameworks, no build step. The UI
 has three main components:
 
-- **Canvas** (`web/js/canvas.js`) — renders images on an HTML5 canvas element, handles
+- **Canvas** (`web/js/canvas.js`) — renders images and WebM clips on an HTML5 canvas element, handles
   pan/zoom, drag-to-move, resize handles, and selection.
 - **Sidebar** (`web/js/sidebar.js`) — collapsible overlay listing uploaded images with
   metadata, a project name field, and a project-switching dialog.
