@@ -14,31 +14,46 @@
     </main>
 
     <script src="js/api.js"></script>
+    <script src="js/auth.js"></script>
     <script src="js/canvas.js"></script>
     <script src="js/sidebar.js"></script>
     <script>
         const api = new ApiClient();
+        let auth = null;
+        let canvasCtrl = null;
+        let sidebar = null;
 
-        const canvasCtrl = new CanvasController(
-            document.getElementById("mood-board-canvas"),
-            api,
-            {
-                onUploadComplete: () => sidebar.refreshImageList(),
-                onChange: () => sidebar.refreshImageList(),
-                onSelectionChange: (info) => sidebar.highlightImage(info),
-                getProjectName: () => sidebar.currentProject
-                    ? sidebar.currentProject.name
-                    : "Untitled Project",
-            }
-        );
+        /**
+         * Start the mood board UI after authentication succeeds.
+         *
+         * @param {Object} user - Public user object returned by the backend.
+         * @returns {void}
+         */
+        function startApp(user) {
+            canvasCtrl = new CanvasController(
+                document.getElementById("mood-board-canvas"),
+                api,
+                {
+                    onUploadComplete: () => sidebar.refreshImageList(),
+                    onChange: () => sidebar.refreshImageList(),
+                    onSelectionChange: (info) => sidebar.highlightImage(info),
+                    getProjectName: () => sidebar.currentProject
+                        ? sidebar.currentProject.name
+                        : "Untitled Project",
+                }
+            );
 
-        const sidebar = new Sidebar(api, {
-            canvas: canvasCtrl,
-            onProjectChange: () => {
-                canvasCtrl.clear();
-                canvasCtrl.loadImages();
-            },
-        });
+            sidebar = new Sidebar(api, {
+                canvas: canvasCtrl,
+                onLogout: () => auth.logout(),
+                onProjectChange: () => {
+                    canvasCtrl.clear();
+                    canvasCtrl.loadImages();
+                },
+            });
+        }
+
+        auth = new AuthController(api, { onAuthenticated: startApp });
     </script>
 </body>
 </html>

@@ -1,0 +1,18 @@
+services:
+  mood-board:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: mood-board
+    restart: unless-stopped
+    environment:
+      MOODBOARD_PORT: "8031"
+      MOODBOARD_ADMIN_USERNAME: "${MOODBOARD_ADMIN_USERNAME:-admin}"
+      MOODBOARD_ADMIN_PASSWORD: "${MOODBOARD_ADMIN_PASSWORD:?Set MOODBOARD_ADMIN_PASSWORD before starting Mood Board}"
+    ports:
+      - "8031:8031"
+    volumes:
+      - mood-board-projects:/app/projects
+
+volumes:
+  mood-board-projects:

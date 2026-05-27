@@ -19,6 +19,8 @@ class Sidebar {
      *     whenever the active project changes (open, create, or initial
      *     load).  Receives no arguments — the caller should read
      *     ``sidebar.currentProject`` for the new project.
+     * @param {Function} [options.onLogout] - Callback invoked when the user
+     *     clicks the logout button.
      * @param {CanvasController} [options.canvas] - Reference to the
      *     canvas controller, used to query item positions and selection.
      */
@@ -37,6 +39,9 @@ class Sidebar {
 
         /** @type {Function|null} */
         this._onProjectChange = options.onProjectChange || null;
+
+        /** @type {Function|null} */
+        this._onLogout = options.onLogout || null;
 
         /** @type {CanvasController|null} */
         this._canvas = options.canvas || null;
@@ -90,6 +95,11 @@ class Sidebar {
 
         this._content.appendChild(this._openBtn);
 
+        this._logoutBtn = document.createElement("button");
+        this._logoutBtn.className = "sidebar__logout-btn";
+        this._logoutBtn.textContent = "Log out";
+        this._content.appendChild(this._logoutBtn);
+
         /* Image list heading */
         this._imageHeading = document.createElement("h3");
         this._imageHeading.className = "sidebar__image-heading";
@@ -121,6 +131,11 @@ class Sidebar {
     _bindEvents() {
         this._toggleBtn.addEventListener("click", () => this.toggle());
         this._openBtn.addEventListener("click", () => this.openProjectDialog());
+        this._logoutBtn.addEventListener("click", () => {
+            if (this._onLogout) {
+                this._onLogout();
+            }
+        });
         this._projectName.addEventListener("dblclick", () => this._startRename());
     }
 

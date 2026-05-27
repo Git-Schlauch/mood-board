@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `backend/database.py` module provides all persistent storage for the mood board application. It uses Python's built-in `sqlite3` module with a single database file at `data/mood_board.db`. Uploaded images are stored on the filesystem under `data/<project-name>/images/`; only metadata (position, scale, rotation, draw order) is kept in the database.
+The `backend/database.py` module provides all persistent storage for the mood board application. It uses Python's built-in `sqlite3` module with a single database file at `projects/mood_board.db`. Uploaded images are stored on the filesystem under `projects/<project-name>/`; only metadata (position, scale, rotation, draw order, native dimensions, and ownership) is kept in the database.
 
 ## Schema
 
@@ -11,9 +11,37 @@ The `backend/database.py` module provides all persistent storage for the mood bo
 | Column       | Type    | Notes                          |
 |--------------|---------|--------------------------------|
 | `id`         | INTEGER | Primary key, autoincrement     |
+| `user_id`    | INTEGER | FK -> `users.id`, project owner |
 | `name`       | TEXT    | Unique, used as directory name |
 | `created_at` | TEXT    | ISO 8601 timestamp             |
 | `updated_at` | TEXT    | ISO 8601 timestamp             |
+
+### `users` table
+
+| Column          | Type    | Notes                              |
+|-----------------|---------|------------------------------------|
+| `id`            | INTEGER | Primary key, autoincrement         |
+| `username`      | TEXT    | Unique login name                  |
+| `password_hash` | TEXT    | PBKDF2-SHA256 password hash        |
+| `created_at`    | TEXT    | ISO 8601 timestamp                 |
+| `updated_at`    | TEXT    | ISO 8601 timestamp                 |
+
+### `sessions` table
+
+| Column       | Type    | Notes                          |
+|--------------|---------|--------------------------------|
+| `token_hash` | TEXT    | SHA-256 hash of session token  |
+| `user_id`    | INTEGER | FK -> `users.id`               |
+| `created_at` | INTEGER | Unix timestamp                 |
+| `expires_at` | INTEGER | Unix timestamp                 |
+
+### `user_settings` table
+
+| Column    | Type    | Notes                         |
+|-----------|---------|-------------------------------|
+| `user_id` | INTEGER | FK -> `users.id`              |
+| `key`     | TEXT    | Setting key                   |
+| `value`   | TEXT    | Setting value                 |
 
 ### `images` table
 
@@ -27,6 +55,8 @@ The `backend/database.py` module provides all persistent storage for the mood bo
 | `scale`      | REAL    | Scale factor (1.0 = original)            |
 | `rotation`   | REAL    | Rotation in degrees                      |
 | `z_index`    | INTEGER | Draw order (higher = on top)             |
+| `native_width` | INTEGER | Original image width                   |
+| `native_height` | INTEGER | Original image height                 |
 | `created_at` | TEXT    | ISO 8601 timestamp                       |
 | `updated_at` | TEXT    | ISO 8601 timestamp                       |
 
@@ -35,7 +65,7 @@ The `backend/database.py` module provides all persistent storage for the mood bo
 ```python
 from backend.database import Database
 
-# Production — uses data/mood_board.db
+# Production - uses projects/mood_board.db
 db = Database()
 db.initialize()
 
@@ -43,8 +73,11 @@ db.initialize()
 db = Database(":memory:")
 db.initialize()
 
+# Create or update a user
+user = db.create_or_update_user("admin", "long-password")
+
 # Create a project
-project = db.create_project("my-mood-board")
+project = db.create_project("my-mood-board", user_id=user["id"])
 
 # Add an image
 image = db.add_image(project["id"], "photo.png", pos_x=100, pos_y=200)
@@ -62,15 +95,13 @@ db.delete_project(project["id"])
 ## Filesystem Layout
 
 ```
-data/
+projects/
 ├── mood_board.db
 ├── project-alpha/
-│   └── images/
-│       ├── photo1.png
-│       └── sketch.jpg
+│   ├── photo1.png
+│   └── sketch.jpg
 └── project-beta/
-    └── images/
-        └── reference.png
+    └── reference.png
 ```
 
 ## Design Notes
@@ -79,4 +110,5 @@ data/
 - **Thread safety** — each `connect()` call creates a fresh connection, making it safe for concurrent access.
 - **JSON-friendly** — all methods return plain `dict` objects (converted from `sqlite3.Row`).
 - **Foreign keys** — `PRAGMA foreign_keys = ON` is set on every connection to enforce cascade deletes.
+- **User isolation** — server routes pass a user ID into project lookups so users only see their own canvas data.
 - **Name validation** — project names are restricted to alphanumeric characters, hyphens, underscores, and spaces.

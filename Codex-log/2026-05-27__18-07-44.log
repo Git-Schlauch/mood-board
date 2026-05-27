@@ -1,0 +1,22 @@
+Modified backend/database.py:
+- Added users, sessions, and per-user settings tables.
+- Added PBKDF2 password hashing, session storage, and project ownership helpers.
+- Migrated projects to include user ownership while preserving maintenance access for scripts.
+
+Modified backend/server.py:
+- Added login, logout, and session endpoints using HTTP-only cookies.
+- Protected API and project image routes behind authentication.
+- Scoped projects, current project settings, image updates, and image serving to the authenticated user.
+- Added startup admin bootstrap from environment variables with random first-run fallback.
+- Rejected non-raster image uploads to avoid serving active content.
+
+Modified web/index.html, web/js/api.js, web/js/auth.js, web/js/sidebar.js, and web/css/style.css:
+- Added a login screen, session check, logout button, and authenticated app startup flow.
+
+Added compose.yaml and .env.example:
+- Added a Dockge-friendly Docker Compose stack with persistent project storage and required admin password configuration.
+
+Modified README.md, docker/README.md, docs/backend/database.md, and docs/security.md:
+- Documented authentication setup, Docker Compose usage, database ownership schema, and external network audit notes.
+
+Agent: GPT-5 Codex

@@ -15,17 +15,23 @@ from __future__ import annotations
 
 import argparse
 import base64
+from http.cookies import SimpleCookie
 import functools
 import json
 import mimetypes
 import os
 import sqlite3
 import sys
+import secrets
 import urllib.parse
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from typing import Any
 
 from backend.database import Database
+
+
+SESSION_COOKIE_NAME = "mood_board_session"
+SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 7
 
 
 class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
@@ -56,13 +62,20 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             **kwargs: Keyword arguments forwarded to the parent class.
         """
         self.db: Database | None = db
+        self.current_user: dict[str, Any] | None = None
         super().__init__(*args, directory=directory, **kwargs)
 
     # -- HTTP verb overrides -------------------------------------------------
 
     def do_GET(self) -> None:
         """Route GET requests to API handlers or static file serving."""
-        if self.path == "/api/current-project":
+        if self.path == "/api/session":
+            self._handle_session()
+        elif self.path.startswith("/api/") and not self._require_authentication():
+            return
+        elif self.path.startswith("/projects/") and not self._require_authentication():
+            return
+        elif self.path == "/api/current-project":
             self._handle_current_project()
         elif self.path == "/api/projects":
             self._handle_list_projects()
@@ -75,7 +88,13 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         """Route POST requests to the appropriate API handler."""
-        if self.path == "/api/projects/open":
+        if self.path == "/api/login":
+            self._handle_login()
+        elif self.path == "/api/logout":
+            self._handle_logout()
+        elif self.path.startswith("/api/") and not self._require_authentication():
+            return
+        elif self.path == "/api/projects/open":
             self._handle_open_project()
         elif self.path == "/api/projects":
             self._handle_create_project()
@@ -92,12 +111,63 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
 
     # -- API handlers --------------------------------------------------------
 
+    def _handle_session(self) -> None:
+        """Return the current authentication state for the browser.
+
+        ``GET /api/session``
+        """
+        user = self._get_authenticated_user()
+        if user is None:
+            self._send_json({"authenticated": False, "user": None})
+            return
+
+        self._send_json({"authenticated": True, "user": self._public_user(user)})
+
+    def _handle_login(self) -> None:
+        """Authenticate a user and set an HTTP-only session cookie.
+
+        ``POST /api/login``
+
+        Expects ``{"username": "<name>", "password": "<password>"}``.
+        Returns the public user record on success, or 401 for invalid
+        credentials.
+        """
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        username = str(body.get("username", ""))
+        password = str(body.get("password", ""))
+        user = self.db.authenticate_user(username, password)
+        if user is None:
+            self._send_json({"error": "Invalid username or password"}, status=401)
+            return
+
+        token = self.db.create_session(user["id"], SESSION_LIFETIME_SECONDS)
+        self._send_json(
+            {"authenticated": True, "user": self._public_user(user)},
+            headers={"Set-Cookie": self._build_session_cookie(token)},
+        )
+
+    def _handle_logout(self) -> None:
+        """Clear the browser session and remove it from the database.
+
+        ``POST /api/logout``
+        """
+        token = self._read_session_cookie()
+        if token:
+            self.db.delete_session(token)
+        self._send_json(
+            {"success": True},
+            headers={"Set-Cookie": self._build_clear_session_cookie()},
+        )
+
     def _handle_current_project(self) -> None:
         """Return the current project, auto-creating one if none exist.
 
         ``GET /api/current-project``
         """
-        project = self.db.get_or_create_current_project()
+        project = self.db.get_or_create_current_project(self.current_user["id"])
         self._send_json(project)
 
     def _handle_list_projects(self) -> None:
@@ -105,7 +175,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
 
         ``GET /api/projects``
         """
-        projects = self.db.list_projects()
+        projects = self.db.list_projects(self.current_user["id"])
         self._send_json(projects)
 
     def _handle_open_project(self) -> None:
@@ -125,12 +195,14 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "Missing project_id"}, status=400)
             return
 
-        project = self.db.get_project(int(project_id))
+        project = self.db.get_project(int(project_id), user_id=self.current_user["id"])
         if project is None:
             self._send_json({"error": "Project not found"}, status=404)
             return
 
-        self.db.set_setting("current_project_id", str(project["id"]))
+        self.db.set_user_setting(
+            self.current_user["id"], "current_project_id", str(project["id"])
+        )
         self._send_json(project)
 
     def _handle_create_project(self) -> None:
@@ -152,7 +224,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             return
 
         try:
-            project = self.db.create_project(name)
+            project = self.db.create_project(name, user_id=self.current_user["id"])
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=400)
             return
@@ -162,7 +234,9 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             )
             return
 
-        self.db.set_setting("current_project_id", str(project["id"]))
+        self.db.set_user_setting(
+            self.current_user["id"], "current_project_id", str(project["id"])
+        )
         self._send_json(project, status=201)
 
     def _handle_rename_project(self) -> None:
@@ -190,7 +264,9 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             return
 
         try:
-            success = self.db.rename_project(int(project_id), new_name)
+            success = self.db.rename_project(
+                int(project_id), new_name, user_id=self.current_user["id"]
+            )
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=400)
             return
@@ -204,7 +280,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "Project not found"}, status=404)
             return
 
-        project = self.db.get_project(int(project_id))
+        project = self.db.get_project(int(project_id), user_id=self.current_user["id"])
         self._send_json(project)
 
     # -- image handlers ------------------------------------------------------
@@ -217,7 +293,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         Fetches the current project and returns its image records ordered
         by z_index then id.
         """
-        project = self.db.get_or_create_current_project()
+        project = self.db.get_or_create_current_project(self.current_user["id"])
         images = self.db.list_images(project["id"])
         self._send_json(images)
 
@@ -253,14 +329,19 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "Invalid base64 data"}, status=400)
             return
 
-        project = self.db.get_or_create_current_project()
-        project_name: str = project["name"]
-
-        # Sanitise the filename to its basename only.
         filename = os.path.basename(filename)
         if not filename:
             self._send_json({"error": "Invalid filename"}, status=400)
             return
+        if not self._is_supported_image_upload(filename, file_bytes):
+            self._send_json(
+                {"error": "Only PNG, JPEG, GIF, and WebP images are supported"},
+                status=400,
+            )
+            return
+
+        project = self.db.get_or_create_current_project(self.current_user["id"])
+        project_name: str = project["name"]
 
         # Resolve filename conflicts by appending a numeric suffix.
         save_name = self._unique_filename(project_name, filename)
@@ -337,12 +418,17 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._send_json({"error": "No updatable fields provided"}, status=400)
             return
 
+        image = self.db.get_image_for_user(int(image_id), self.current_user["id"])
+        if image is None:
+            self._send_json({"error": "Image not found"}, status=404)
+            return
+
         updated = self.db.update_image(int(image_id), **fields)
         if not updated:
             self._send_json({"error": "Image not found"}, status=404)
             return
 
-        image = self.db.get_image(int(image_id))
+        image = self.db.get_image_for_user(int(image_id), self.current_user["id"])
         self._send_json(image)
 
     def _handle_image_delete(self) -> None:
@@ -365,7 +451,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             return
 
         # Fetch the image record before deleting so we know the filename.
-        image = self.db.get_image(int(image_id))
+        image = self.db.get_image_for_user(int(image_id), self.current_user["id"])
         if image is None:
             self._send_json({"error": "Image not found"}, status=404)
             return
@@ -409,6 +495,13 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             return
 
         project_name, filename = parts
+        project = self.db.get_project_by_name(
+            project_name, user_id=self.current_user["id"]
+        )
+        if project is None:
+            self.send_error(404, "Image not found")
+            return
+
         file_path = self.db.get_image_path(project_name, filename)
 
         if not os.path.isfile(file_path):
@@ -435,17 +528,23 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
 
     # -- JSON helpers --------------------------------------------------------
 
-    def _send_json(self, data: Any, status: int = 200) -> None:
+    def _send_json(
+        self, data: Any, status: int = 200, headers: dict[str, str] | None = None
+    ) -> None:
         """Serialise *data* as JSON and send it as the HTTP response.
 
         Args:
             data: Any JSON-serialisable value (dict, list, etc.).
             status: The HTTP status code (default 200).
+            headers: Optional extra response headers.
         """
         payload = json.dumps(data).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
+        if headers:
+            for key, value in headers.items():
+                self.send_header(key, value)
         self.end_headers()
         self.wfile.write(payload)
 
@@ -473,6 +572,118 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         """Write log messages to stderr with a cleaner format."""
         sys.stderr.write(f"[{self.log_date_time_string()}] {format % args}\n")
+
+    # -- authentication helpers --------------------------------------------
+
+    def _require_authentication(self) -> bool:
+        """Require a valid session for the current request.
+
+        Returns:
+            ``True`` when a user is authenticated, otherwise sends a 401 JSON
+            response and returns ``False``.
+        """
+        user = self._get_authenticated_user()
+        if user is None:
+            self._send_json({"error": "Authentication required"}, status=401)
+            return False
+        self.current_user = user
+        return True
+
+    def _get_authenticated_user(self) -> dict[str, Any] | None:
+        """Resolve the current user from the session cookie.
+
+        Returns:
+            A public user dict, or ``None`` when no valid session exists.
+        """
+        token = self._read_session_cookie()
+        if not token:
+            return None
+        return self.db.get_user_by_session(token)
+
+    def _read_session_cookie(self) -> str | None:
+        """Read the raw session token from the Cookie header.
+
+        Returns:
+            The session token string, or ``None`` if it is absent.
+        """
+        cookie_header = self.headers.get("Cookie")
+        if not cookie_header:
+            return None
+        cookies = SimpleCookie()
+        cookies.load(cookie_header)
+        morsel = cookies.get(SESSION_COOKIE_NAME)
+        return morsel.value if morsel else None
+
+    def _build_session_cookie(self, token: str) -> str:
+        """Build a Set-Cookie header for a new session.
+
+        Args:
+            token: Raw session token to store in the browser.
+
+        Returns:
+            A complete Set-Cookie header value.
+        """
+        parts = [
+            f"{SESSION_COOKIE_NAME}={token}",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Lax",
+            f"Max-Age={SESSION_LIFETIME_SECONDS}",
+        ]
+        if os.environ.get("MOODBOARD_COOKIE_SECURE") == "1":
+            parts.append("Secure")
+        return "; ".join(parts)
+
+    def _build_clear_session_cookie(self) -> str:
+        """Build a Set-Cookie header that removes the browser session.
+
+        Returns:
+            A complete Set-Cookie header value with an expired cookie.
+        """
+        parts = [
+            f"{SESSION_COOKIE_NAME}=",
+            "Path=/",
+            "HttpOnly",
+            "SameSite=Lax",
+            "Max-Age=0",
+        ]
+        if os.environ.get("MOODBOARD_COOKIE_SECURE") == "1":
+            parts.append("Secure")
+        return "; ".join(parts)
+
+    @staticmethod
+    def _public_user(user: dict[str, Any]) -> dict[str, Any]:
+        """Return the safe browser-facing user fields.
+
+        Args:
+            user: Internal user row.
+
+        Returns:
+            Dict containing only non-sensitive user fields.
+        """
+        return {"id": user["id"], "username": user["username"]}
+
+    @staticmethod
+    def _is_supported_image_upload(filename: str, file_bytes: bytes) -> bool:
+        """Validate that an upload is a supported raster image.
+
+        Args:
+            filename: Sanitized upload filename.
+            file_bytes: Decoded file content.
+
+        Returns:
+            ``True`` for PNG, JPEG, GIF, or WebP uploads.
+        """
+        ext = os.path.splitext(filename)[1].lower()
+        signatures = {
+            ".png": (b"\x89PNG\r\n\x1a\n",),
+            ".jpg": (b"\xff\xd8\xff",),
+            ".jpeg": (b"\xff\xd8\xff",),
+            ".gif": (b"GIF87a", b"GIF89a"),
+        }
+        if ext == ".webp":
+            return file_bytes.startswith(b"RIFF") and file_bytes[8:12] == b"WEBP"
+        return any(file_bytes.startswith(signature) for signature in signatures.get(ext, ()))
 
 
 def build_handler(
@@ -517,11 +728,44 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+def bootstrap_authentication(db: Database) -> None:
+    """Ensure at least one login exists before serving requests.
+
+    If ``MOODBOARD_ADMIN_PASSWORD`` is set, the named admin user is created or
+    updated on every startup.  If the database has no users and no password
+    was provided, a random one-time admin password is generated and printed so
+    local development remains usable without shipping default credentials.
+
+    Args:
+        db: Initialised database instance.
+    """
+    username = os.environ.get("MOODBOARD_ADMIN_USERNAME", "admin")
+    password = os.environ.get("MOODBOARD_ADMIN_PASSWORD")
+
+    if password:
+        user = db.create_or_update_user(username, password)
+        db.assign_unowned_projects(user["id"])
+        print(f"Authentication ready for user '{username}'.")
+        return
+
+    if db.count_users() == 0:
+        generated_password = secrets.token_urlsafe(18)
+        user = db.create_or_update_user(username, generated_password)
+        db.assign_unowned_projects(user["id"])
+        print("No MOODBOARD_ADMIN_PASSWORD was set.")
+        print(f"Created initial user '{username}' with password: {generated_password}")
+        print("Set MOODBOARD_ADMIN_PASSWORD to control this credential explicitly.")
+        return
+
+    print("Authentication ready.")
+
+
 def run_server(port: int = 8031) -> None:
     """Start the HTTP server and serve forever.
 
     Initialises the database, resolves the ``web/`` directory relative to
-    this file's location, and begins serving requests.
+    this file's location, bootstraps authentication, and begins serving
+    requests.
 
     Args:
         port: TCP port to bind to.
@@ -535,6 +779,7 @@ def run_server(port: int = 8031) -> None:
 
     db = Database()
     db.initialize()
+    bootstrap_authentication(db)
 
     handler = build_handler(web_root, db)
     server = HTTPServer(("0.0.0.0", port), handler)

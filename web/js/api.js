@@ -8,6 +8,50 @@
 class ApiClient {
 
     /**
+     * Fetch the current login session from the backend.
+     *
+     * The backend reads the HTTP-only session cookie and returns a small
+     * public user object when the browser is already authenticated.
+     *
+     * @returns {Promise<Object>} Session state with authenticated and user keys.
+     */
+    async getSession() {
+        const response = await fetch("/api/session");
+        return this._handleResponse(response);
+    }
+
+    /**
+     * Log in with a username and password.
+     *
+     * On success the backend sets an HTTP-only session cookie.  JavaScript
+     * never receives or stores the raw session token.
+     *
+     * @param {string} username - The login username.
+     * @param {string} password - The login password.
+     * @returns {Promise<Object>} Session state with authenticated and user keys.
+     */
+    async login(username, password) {
+        const response = await fetch("/api/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+        });
+        return this._handleResponse(response);
+    }
+
+    /**
+     * Log out the current browser session.
+     *
+     * The backend deletes the session record and clears the HTTP-only cookie.
+     *
+     * @returns {Promise<Object>} A success confirmation object.
+     */
+    async logout() {
+        const response = await fetch("/api/logout", { method: "POST" });
+        return this._handleResponse(response);
+    }
+
+    /**
      * Fetch the current project from the backend.
      *
      * If no projects exist yet the backend automatically creates a

@@ -11,6 +11,7 @@ zero external dependencies.
 - **Free arrangement** — move and resize images anywhere on an infinite pannable canvas
 - **Z-order controls** — bring images forward or send them back with a floating action panel
 - **Multiple projects** — create, switch between, and rename projects
+- **Login sessions** — users sign in before project and image data is served
 - **Sidebar** — browse uploaded images, view metadata, and click to select on canvas
 - **Persistent state** — positions, sizes, and z-order are saved automatically
 
@@ -34,6 +35,7 @@ JavaScript with no frameworks or build tools.
 2. **Start the server:**
 
    ```bash
+   export MOODBOARD_ADMIN_PASSWORD='choose-a-long-password'
    .venv/bin/python -m backend.server
    ```
 
@@ -45,6 +47,19 @@ JavaScript with no frameworks or build tools.
 
 3. **Open the app** at [http://localhost:8031](http://localhost:8031).
 
+   Sign in with `admin` unless `MOODBOARD_ADMIN_USERNAME` was set before
+   startup. If no users exist and no admin password is provided, the server
+   prints a random first-run password to the terminal.
+
+### Docker Compose
+
+For Dockge or Docker Compose, copy `.env.example` to `.env`, set
+`MOODBOARD_ADMIN_PASSWORD`, then start the stack:
+
+```bash
+docker compose up -d
+```
+
 ## Project Structure
 
 ```
@@ -55,6 +70,7 @@ mood_board/
 │   │   └── style.css       # All styles
 │   └── js/
 │       ├── api.js          # Backend API client
+│       ├── auth.js         # Login screen and session bootstrap
 │       ├── canvas.js       # Canvas rendering & interaction
 │       └── sidebar.js      # Sidebar UI & project dialog
 ├── backend/                # Backend Python code

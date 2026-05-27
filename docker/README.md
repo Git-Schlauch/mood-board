@@ -16,6 +16,27 @@ Basic usage (ephemeral storage):
 docker run -p 8031:8031 mood-board
 ```
 
+The application now requires a login. Set the initial admin credentials when
+starting the container:
+
+```bash
+docker run -p 8031:8031 \
+           -e MOODBOARD_ADMIN_USERNAME=admin \
+           -e MOODBOARD_ADMIN_PASSWORD='choose-a-long-password' \
+           mood-board
+```
+
+## Docker Compose / Dockge
+
+The repository includes a `compose.yaml` file suitable for Dockge. Before
+starting the stack set `MOODBOARD_ADMIN_PASSWORD` in Dockge's environment
+variables. Optionally set `MOODBOARD_ADMIN_USERNAME`; it defaults to `admin`.
+
+```yaml
+MOODBOARD_ADMIN_USERNAME=admin
+MOODBOARD_ADMIN_PASSWORD=choose-a-long-password
+```
+
 ## Persistent storage
 
 The container stores the SQLite database (`mood_board.db`) and all uploaded

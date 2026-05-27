@@ -20,6 +20,89 @@ html, body {
     color: #e0e0e0;
 }
 
+/* ===================================================================
+   Authentication
+   =================================================================== */
+
+.auth {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: #16213e;
+}
+
+.auth__panel {
+    width: min(360px, 100%);
+    padding: 24px;
+    background-color: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+}
+
+.auth__panel h1 {
+    margin-bottom: 8px;
+    font-size: 24px;
+    font-weight: 700;
+}
+
+.auth__panel p {
+    margin-bottom: 18px;
+    color: #a8a8c4;
+    font-size: 13px;
+}
+
+.auth__form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.auth__form input {
+    width: 100%;
+    padding: 10px 12px;
+    background-color: #16213e;
+    color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.auth__form input::placeholder {
+    color: #6a6a8a;
+}
+
+.auth__form button {
+    padding: 10px 14px;
+    background-color: #0f3460;
+    color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.auth__form button:hover,
+.auth__form button:focus {
+    background-color: #154985;
+}
+
+.auth__form button:disabled {
+    cursor: wait;
+    opacity: 0.7;
+}
+
+.auth__error {
+    min-height: 18px;
+    margin: 0;
+    color: #ff9a9a;
+    font-size: 12px;
+}
+
 /* Canvas container — always fills the full viewport. */
 #canvas-container {
     position: relative;
@@ -133,7 +216,8 @@ html, body {
     overflow-y: auto;
 }
 
-.sidebar__open-btn {
+.sidebar__open-btn,
+.sidebar__logout-btn {
     width: 100%;
     padding: 8px 12px;
     background-color: #2a2a4a;
@@ -145,8 +229,13 @@ html, body {
     transition: background-color 0.15s;
 }
 
-.sidebar__open-btn:hover {
+.sidebar__open-btn:hover,
+.sidebar__logout-btn:hover {
     background-color: #3a3a5a;
+}
+
+.sidebar__logout-btn {
+    margin-top: 8px;
 }
 
 /* Image list heading */
