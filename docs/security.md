@@ -5,8 +5,13 @@
 The frontend only calls same-origin paths under `/api/...` and `/projects/...`.
 There are no CDN scripts, analytics beacons, third-party image URLs, WebSocket
 connections, or hard-coded external HTTP endpoints in the current source tree.
-The backend uses Python standard library modules only and does not make outbound
-network requests.
+The backend uses Python standard library modules only.
+
+Optional URL import is disabled unless `MOODBOARD_ALLOW_URL_IMPORT=1` is set.
+When enabled, the backend makes user-triggered outbound HTTP(S) requests to
+download direct media URLs. It rejects embedded credentials, non-public/private
+host addresses, excessive redirects, oversized files, and unsupported media
+payloads.
 
 ## Authentication
 
@@ -37,3 +42,6 @@ prints it to the server log.
 Uploads are accepted only for PNG, JPEG, GIF, WebP, and WebM media payloads.
 SVG and HTML uploads are rejected to avoid serving active content from the
 projects directory.
+
+Remote URL imports use the same media signature validation and the same project
+storage path as local uploads.

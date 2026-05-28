@@ -17,13 +17,17 @@ import argparse
 import base64
 from http.cookies import SimpleCookie
 import functools
+import ipaddress
 import json
 import mimetypes
 import os
 import sqlite3
 import sys
 import secrets
+import socket
 import urllib.parse
+import urllib.error
+import urllib.request
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from typing import Any
 
@@ -32,6 +36,10 @@ from backend.database import Database
 
 SESSION_COOKIE_NAME = "mood_board_session"
 SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 7
+URL_IMPORT_MAX_BYTES = int(
+    os.environ.get("MOODBOARD_URL_IMPORT_MAX_BYTES", str(50 * 1024 * 1024))
+)
+URL_IMPORT_MAX_REDIRECTS = 5
 
 
 class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
@@ -104,6 +112,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_create_project()
         elif request_path == "/api/images/upload":
             self._handle_image_upload()
+        elif request_path == "/api/images/import-url":
+            self._handle_image_url_import()
         elif request_path == "/api/images/update":
             self._handle_image_update()
         elif request_path == "/api/images/delete":
@@ -472,6 +482,186 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             native_width=body.get("native_width", 0),
             native_height=body.get("native_height", 0),
         )
+
+    def _handle_image_url_import(self) -> None:
+        """Import an image or WebM file from a remote HTTP(S) URL.
+
+        ``POST /api/images/import-url``
+
+        Expects ``{"url": "<https-url>"}``.  The feature is disabled unless
+        ``MOODBOARD_ALLOW_URL_IMPORT=1`` is set because it intentionally makes
+        outbound network requests from the server.
+        """
+        if os.environ.get("MOODBOARD_ALLOW_URL_IMPORT") != "1":
+            self._send_json(
+                {"error": "URL import is disabled on this server"}, status=403
+            )
+            return
+
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        url = str(body.get("url", "")).strip()
+        if not url:
+            self._send_json({"error": "Missing URL"}, status=400)
+            return
+
+        try:
+            final_url, content_type, file_bytes = self._download_import_url(url)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        except urllib.error.URLError as exc:
+            self._send_json({"error": f"Could not download URL: {exc.reason}"}, status=400)
+            return
+        except TimeoutError:
+            self._send_json({"error": "URL download timed out"}, status=400)
+            return
+
+        filename = self._filename_for_import_url(final_url, content_type, file_bytes)
+        self._save_uploaded_image(filename, file_bytes)
+
+    def _download_import_url(self, url: str) -> tuple[str, str, bytes]:
+        """Download a remote import URL with redirect and size checks.
+
+        Args:
+            url: HTTP(S) URL supplied by the browser.
+
+        Returns:
+            Tuple of final URL, response Content-Type, and downloaded bytes.
+
+        Raises:
+            ValueError: If the URL, redirect, host, response type, or size is
+                not acceptable.
+            urllib.error.URLError: If the remote request fails.
+        """
+        current_url = url
+        opener = urllib.request.build_opener(_NoRedirectHandler)
+
+        for _ in range(URL_IMPORT_MAX_REDIRECTS + 1):
+            self._validate_import_url(current_url)
+            request = urllib.request.Request(
+                current_url,
+                headers={"User-Agent": "MoodBoardUrlImport/1.0"},
+                method="GET",
+            )
+
+            try:
+                with opener.open(request, timeout=15) as response:
+                    status = response.getcode()
+                    content_type = response.headers.get("Content-Type", "")
+                    content_length = response.headers.get("Content-Length")
+                    if content_length:
+                        try:
+                            if int(content_length) > URL_IMPORT_MAX_BYTES:
+                                raise ValueError("Remote file is too large")
+                        except ValueError as exc:
+                            if str(exc) == "Remote file is too large":
+                                raise
+                            raise ValueError("Remote file size is invalid") from exc
+                    if status < 200 or status >= 300:
+                        raise ValueError(f"Remote server returned HTTP {status}")
+
+                    file_bytes = response.read(URL_IMPORT_MAX_BYTES + 1)
+                    if len(file_bytes) > URL_IMPORT_MAX_BYTES:
+                        raise ValueError("Remote file is too large")
+                    return response.geturl(), content_type, file_bytes
+            except urllib.error.HTTPError as exc:
+                if exc.code in (301, 302, 303, 307, 308):
+                    location = exc.headers.get("Location")
+                    if not location:
+                        raise ValueError("Remote redirect did not include a location")
+                    current_url = urllib.parse.urljoin(current_url, location)
+                    continue
+                raise
+
+        raise ValueError("Remote URL redirected too many times")
+
+    def _validate_import_url(self, url: str) -> None:
+        """Validate that a URL is safe to request from the server.
+
+        Args:
+            url: Candidate HTTP(S) URL.
+
+        Raises:
+            ValueError: If the URL is invalid or resolves to a non-public host.
+        """
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("Only http and https URLs are supported")
+        if not parsed.hostname:
+            raise ValueError("URL must include a hostname")
+        if parsed.username or parsed.password:
+            raise ValueError("URLs with embedded credentials are not allowed")
+
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        try:
+            addresses = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
+        except socket.gaierror as exc:
+            raise ValueError(f"Could not resolve URL host: {exc}") from exc
+
+        for address in addresses:
+            ip = ipaddress.ip_address(address[4][0])
+            if not ip.is_global:
+                raise ValueError("URL host resolves to a private or local address")
+
+    def _filename_for_import_url(
+        self, url: str, content_type: str, file_bytes: bytes
+    ) -> str:
+        """Choose a safe filename for an imported remote media file.
+
+        Args:
+            url: Final URL after redirects.
+            content_type: Remote response Content-Type header.
+            file_bytes: Downloaded file bytes.
+
+        Returns:
+            Basename with an extension compatible with the detected media type.
+        """
+        parsed = urllib.parse.urlsplit(url)
+        filename = os.path.basename(urllib.parse.unquote(parsed.path))
+        filename = filename or "imported-media"
+        base, ext = os.path.splitext(filename)
+        detected_ext = self._detect_media_extension(content_type, file_bytes)
+        if detected_ext is None:
+            return filename
+        if ext.lower() != detected_ext:
+            filename = f"{base or 'imported-media'}{detected_ext}"
+        return filename
+
+    @staticmethod
+    def _detect_media_extension(content_type: str, file_bytes: bytes) -> str | None:
+        """Detect a supported media extension from headers and signatures.
+
+        Args:
+            content_type: Remote response Content-Type header.
+            file_bytes: Downloaded file bytes.
+
+        Returns:
+            File extension including the leading dot, or ``None`` if unknown.
+        """
+        content_type = content_type.split(";", 1)[0].strip().lower()
+        content_type_map = {
+            "image/png": ".png",
+            "image/jpeg": ".jpg",
+            "image/gif": ".gif",
+            "image/webp": ".webp",
+            "video/webm": ".webm",
+        }
+        if content_type in content_type_map:
+            return content_type_map[content_type]
+        if file_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+            return ".png"
+        if file_bytes.startswith(b"\xff\xd8\xff"):
+            return ".jpg"
+        if file_bytes.startswith((b"GIF87a", b"GIF89a")):
+            return ".gif"
+        if file_bytes.startswith(b"RIFF") and file_bytes[8:12] == b"WEBP":
+            return ".webp"
+        if file_bytes.startswith(b"\x1a\x45\xdf\xa3"):
+            return ".webm"
+        return None
 
     def _save_uploaded_image(
         self,
@@ -889,6 +1079,34 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         if ext == ".webm":
             return file_bytes.startswith(b"\x1a\x45\xdf\xa3")
         return any(file_bytes.startswith(signature) for signature in signatures.get(ext, ()))
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Prevent urllib from following redirects without validation."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        """Return ``None`` so redirects are surfaced as HTTPError objects.
+
+        Args:
+            req: Original request.
+            fp: Remote response file object.
+            code: HTTP status code.
+            msg: HTTP status message.
+            headers: Response headers.
+            newurl: Redirect target.
+
+        Returns:
+            Always ``None`` to disable automatic redirect following.
+        """
+        return None
 
 
 def build_handler(

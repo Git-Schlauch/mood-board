@@ -537,6 +537,10 @@ html, body {
     color: #6a6a8a;
 }
 
+.dialog__url-input {
+    margin-bottom: 8px;
+}
+
 .dialog__status {
     min-height: 18px;
     color: #b8b8d4;

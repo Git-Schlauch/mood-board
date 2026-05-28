@@ -1,0 +1,16 @@
+Changed files:
+- backend/server.py: added an opt-in server-side URL import endpoint with HTTP(S)-only validation, public-address checks, redirect limits, download-size limits, and supported media signature checks.
+- web/js/api.js: added the importImageUrl API client method.
+- web/js/canvas.js: added an Import URL toolbar action and dialog that places imported media in the current canvas viewport.
+- web/css/style.css: styled the URL import input.
+- compose.yaml and .env.example: exposed URL import enablement and download-size settings.
+- README.md, docker/README.md, docs/security.md: documented URL import behavior, Docker configuration, and outbound-network security constraints.
+
+Checks:
+- node --check web/js/canvas.js
+- node --check web/js/api.js
+- python3 -m py_compile backend/server.py backend/database.py
+- git diff --check
+- URL import helper smoke test for media detection, filename handling, and private-address blocking
+
+Agent: GPT-5 Codex

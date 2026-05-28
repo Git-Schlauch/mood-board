@@ -35,6 +35,8 @@ variables. Optionally set `MOODBOARD_ADMIN_USERNAME`; it defaults to `admin`.
 ```yaml
 MOODBOARD_ADMIN_USERNAME=admin
 MOODBOARD_ADMIN_PASSWORD=choose-a-long-password
+MOODBOARD_ALLOW_URL_IMPORT=0
+MOODBOARD_URL_IMPORT_MAX_BYTES=52428800
 PUID=1000
 PGID=1000
 ```
@@ -42,6 +44,10 @@ PGID=1000
 The Compose stack bind-mounts `./projects` to `/app/projects`. Keep `PUID` and
 `PGID` aligned with the Linux user that owns the copied project folder so the
 container can write the SQLite database and uploaded images.
+
+Set `MOODBOARD_ALLOW_URL_IMPORT=1` only if the container is allowed to download
+direct media URLs. The server blocks private/local IP targets and enforces the
+`MOODBOARD_URL_IMPORT_MAX_BYTES` download limit.
 
 ## Persistent storage
 

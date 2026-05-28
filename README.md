@@ -9,6 +9,7 @@ zero external dependencies.
 
 - **Drag-and-drop upload** — drop images onto the canvas to add them to a project
 - **Upload button** — add images and WebM clips through a file picker when drag-and-drop is awkward
+- **URL import** — optionally pull PNG, JPEG, GIF, WebP, or WebM media from a direct HTTP(S) URL
 - **Animated media** — GIF and WebM playback loops by default and can be toggled per item
 - **Free arrangement** — move and resize images anywhere on an infinite pannable canvas
 - **Pan and zoom** — drag the empty canvas to move around and use the mouse wheel to zoom
@@ -72,6 +73,10 @@ docker compose up -d
 
 Compose stores the SQLite database and uploaded images in `./projects`, so you
 can copy or back up that folder directly.
+
+URL import is disabled by default because it makes outbound requests from the
+server. Set `MOODBOARD_ALLOW_URL_IMPORT=1` in `.env` to enable it. The default
+download limit is 50 MB and can be changed with `MOODBOARD_URL_IMPORT_MAX_BYTES`.
 
 ## Project Structure
 

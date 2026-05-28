@@ -222,6 +222,24 @@ class ApiClient {
     }
 
     /**
+     * Import an image or WebM file from a remote URL.
+     *
+     * The backend downloads and validates the URL server-side, then stores the
+     * resulting media file in the current project just like a normal upload.
+     *
+     * @param {string} url - Remote HTTP(S) media URL.
+     * @returns {Promise<Object>} The created image record.
+     */
+    async importImageUrl(url) {
+        const response = await fetch("/api/images/import-url", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url }),
+        });
+        return this._handleResponse(response);
+    }
+
+    /**
      * Load a File into temporary media to read its native dimensions.
      *
      * Creates an object URL from the file, waits for an image or video to load

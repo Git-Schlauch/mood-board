@@ -123,6 +123,9 @@ class CanvasController {
         /** @type {number} Item Y position at resize start. */
         this._resizeStartItemY = 0;
 
+        /** @type {HTMLElement|null} URL import dialog overlay. */
+        this._urlImportDialog = null;
+
         this._syncCanvasSize();
         this._buildMediaLayer();
         this._buildActionPanel();
@@ -1180,6 +1183,82 @@ class CanvasController {
             });
     }
 
+    /**
+     * Import a remote media URL at the centre of the current viewport.
+     *
+     * @param {string} url - Remote HTTP(S) media URL.
+     * @returns {Promise<void>} Resolves after the imported media is displayed.
+     */
+    async importUrl(url) {
+        const center = this._canvasToWorld(this.canvas.width / 2, this.canvas.height / 2);
+        const placeholderW = (this.canvas.width / this._zoom) / 3;
+        const placeholderH = (this.canvas.height / this._zoom) / 3;
+        const item = {
+            id: `temp_${this._nextTempId++}`,
+            x: center.x - placeholderW / 2,
+            y: center.y - placeholderH / 2,
+            width: placeholderW,
+            height: placeholderH,
+            type: "placeholder",
+            media: null,
+            mediaKind: "image",
+            loopEnabled: true,
+            frozenFrame: null,
+            img: null,
+            imageRecord: null,
+        };
+
+        this._items.push(item);
+        this._scheduleRender();
+
+        try {
+            const record = await this.api.importImageUrl(url);
+            item.imageRecord = record;
+            item.loopEnabled = this._recordLoopEnabled(record);
+            item.mediaKind = this._mediaKind(record);
+            const media = await this._loadMedia(record);
+            const natural = this._mediaNaturalSize(media);
+            const fitted = this._fitImage(
+                natural.width,
+                natural.height,
+                item.x + item.width / 2,
+                item.y + item.height / 2,
+                placeholderW,
+                placeholderH
+            );
+
+            item.type = "image";
+            item.media = media;
+            item.img = media;
+            item.x = fitted.x;
+            item.y = fitted.y;
+            item.width = fitted.width;
+            item.height = fitted.height;
+            item.id = item.imageRecord.id;
+            this._applyMediaPlayback(item);
+
+            this.api.updateImage(item.imageRecord.id, {
+                pos_x: item.x,
+                pos_y: item.y,
+                scale: item.width / natural.width,
+            }).catch((err) => {
+                console.error("Failed to persist imported image position:", err);
+            });
+
+            if (this._onUploadComplete) {
+                this._onUploadComplete();
+            }
+            this._scheduleRender();
+        } catch (err) {
+            const idx = this._items.indexOf(item);
+            if (idx !== -1) {
+                this._items.splice(idx, 1);
+            }
+            this._scheduleRender();
+            throw err;
+        }
+    }
+
     /* ------------------------------------------------------------------
      *  Image loading
      * ------------------------------------------------------------------ */
@@ -1524,6 +1603,9 @@ class CanvasController {
         const uploadBtn = this._createToolbarButton("\u2191", "Upload media", () => {
             this._fileInput.click();
         });
+        const importUrlBtn = this._createToolbarButton("\u26D3", "Import media URL", () => {
+            this._openUrlImportDialog();
+        });
         const zoomOutBtn = this._createToolbarButton("-", "Zoom out", () => {
             this._zoomAtCanvasCenter(1 / 1.2);
         });
@@ -1544,6 +1626,7 @@ class CanvasController {
         });
 
         this._toolbar.appendChild(uploadBtn);
+        this._toolbar.appendChild(importUrlBtn);
         this._toolbar.appendChild(zoomOutBtn);
         this._toolbar.appendChild(resetBtn);
         this._toolbar.appendChild(zoomInBtn);
@@ -1571,6 +1654,97 @@ class CanvasController {
             action();
         });
         return button;
+    }
+
+    /**
+     * Open a small dialog for importing remote media by URL.
+     *
+     * @private
+     */
+    _openUrlImportDialog() {
+        if (this._urlImportDialog) {
+            return;
+        }
+
+        this._urlImportDialog = document.createElement("div");
+        this._urlImportDialog.className = "dialog-overlay";
+
+        const dialog = document.createElement("div");
+        dialog.className = "dialog";
+
+        const title = document.createElement("h2");
+        title.textContent = "Import URL";
+
+        const input = document.createElement("input");
+        input.type = "url";
+        input.className = "dialog__text-input dialog__url-input";
+        input.placeholder = "https://example.com/image.gif";
+        input.autocomplete = "url";
+
+        const status = document.createElement("p");
+        status.className = "dialog__status";
+        status.setAttribute("role", "status");
+
+        const actions = document.createElement("div");
+        actions.className = "dialog__actions";
+
+        const importBtn = document.createElement("button");
+        importBtn.className = "dialog__open-btn";
+        importBtn.textContent = "Import";
+        importBtn.addEventListener("click", async () => {
+            const url = input.value.trim();
+            if (!url) {
+                status.textContent = "Enter a URL first.";
+                return;
+            }
+
+            importBtn.disabled = true;
+            status.textContent = "Importing...";
+            try {
+                await this.importUrl(url);
+                this._closeUrlImportDialog();
+            } catch (err) {
+                status.textContent = err.message || "Could not import URL.";
+                importBtn.disabled = false;
+            }
+        });
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "dialog__cancel-btn";
+        cancelBtn.textContent = "Cancel";
+        cancelBtn.addEventListener("click", () => this._closeUrlImportDialog());
+
+        input.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                importBtn.click();
+            } else if (event.key === "Escape") {
+                event.preventDefault();
+                this._closeUrlImportDialog();
+            }
+        });
+
+        actions.appendChild(importBtn);
+        actions.appendChild(cancelBtn);
+        dialog.appendChild(title);
+        dialog.appendChild(input);
+        dialog.appendChild(status);
+        dialog.appendChild(actions);
+        this._urlImportDialog.appendChild(dialog);
+        document.body.appendChild(this._urlImportDialog);
+        input.focus();
+    }
+
+    /**
+     * Close the URL import dialog if it is open.
+     *
+     * @private
+     */
+    _closeUrlImportDialog() {
+        if (this._urlImportDialog) {
+            this._urlImportDialog.remove();
+            this._urlImportDialog = null;
+        }
     }
 
     /**
