@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT    NOT NULL UNIQUE,
     password_hash TEXT    NOT NULL,
+    is_admin      INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
@@ -212,6 +213,7 @@ class Database:
                 "ALTER TABLE images ADD COLUMN native_height INTEGER NOT NULL DEFAULT 0",
                 "ALTER TABLE images ADD COLUMN loop_enabled INTEGER NOT NULL DEFAULT 1",
                 "ALTER TABLE projects ADD COLUMN user_id INTEGER",
+                "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0",
             )
             for statement in migrations:
                 try:
@@ -221,7 +223,9 @@ class Database:
 
     # -- authentication -----------------------------------------------------
 
-    def create_or_update_user(self, username: str, password: str) -> dict[str, Any]:
+    def create_or_update_user(
+        self, username: str, password: str, is_admin: bool = False
+    ) -> dict[str, Any]:
         """Create a user or update its password if it already exists.
 
         Passwords are stored as PBKDF2-SHA256 hashes with a per-password
@@ -231,6 +235,7 @@ class Database:
         Args:
             username: Login name for the user.
             password: Plain-text password to hash before storage.
+            is_admin: Whether the user should have administrator access.
 
         Returns:
             The created or updated user row without the password hash.
@@ -251,23 +256,169 @@ class Database:
             ).fetchone()
             if existing:
                 conn.execute(
-                    "UPDATE users SET password_hash = ?, updated_at = datetime('now') "
+                    "UPDATE users SET password_hash = ?, is_admin = ?, "
+                    "updated_at = datetime('now') "
                     "WHERE id = ?",
-                    (password_hash, existing["id"]),
+                    (password_hash, int(is_admin), existing["id"]),
                 )
                 user_id = existing["id"]
             else:
                 cursor = conn.execute(
-                    "INSERT INTO users (username, password_hash) VALUES (?, ?)",
-                    (username, password_hash),
+                    "INSERT INTO users (username, password_hash, is_admin) "
+                    "VALUES (?, ?, ?)",
+                    (username, password_hash, int(is_admin)),
                 )
                 user_id = cursor.lastrowid
 
             row = conn.execute(
-                "SELECT id, username, created_at, updated_at FROM users WHERE id = ?",
+                "SELECT id, username, is_admin, created_at, updated_at "
+                "FROM users WHERE id = ?",
                 (user_id,),
             ).fetchone()
         return dict(row)
+
+    def create_user(
+        self, username: str, password: str, is_admin: bool = False
+    ) -> dict[str, Any]:
+        """Create a new user without updating existing credentials.
+
+        Args:
+            username: Login name for the new user.
+            password: Plain-text password to hash before storage.
+            is_admin: Whether the user should have administrator access.
+
+        Returns:
+            The created user row without the password hash.
+
+        Raises:
+            ValueError: If the username or password is empty.
+            sqlite3.IntegrityError: If the username already exists.
+        """
+        username = username.strip()
+        if not username:
+            raise ValueError("Username must not be empty.")
+        if not password:
+            raise ValueError("Password must not be empty.")
+
+        password_hash = self._hash_password(password)
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO users (username, password_hash, is_admin) "
+                "VALUES (?, ?, ?)",
+                (username, password_hash, int(is_admin)),
+            )
+            row = conn.execute(
+                "SELECT id, username, is_admin, created_at, updated_at "
+                "FROM users WHERE id = ?",
+                (cursor.lastrowid,),
+            ).fetchone()
+        return dict(row)
+
+    def list_users(self) -> list[dict[str, Any]]:
+        """Return all users without password hashes.
+
+        Returns:
+            List of public user records ordered by username.
+        """
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT id, username, is_admin, created_at, updated_at "
+                "FROM users ORDER BY username"
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_public_user(self, user_id: int) -> dict[str, Any] | None:
+        """Fetch a public user row by ID.
+
+        Args:
+            user_id: User primary key.
+
+        Returns:
+            Public user dict, or ``None`` if not found.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT id, username, is_admin, created_at, updated_at "
+                "FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_public_user_by_username(self, username: str) -> dict[str, Any] | None:
+        """Fetch a public user row by username.
+
+        Args:
+            username: Login name to look up.
+
+        Returns:
+            Public user dict, or ``None`` if not found.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT id, username, is_admin, created_at, updated_at "
+                "FROM users WHERE username = ?",
+                (username.strip(),),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def set_user_admin(self, user_id: int, is_admin: bool = True) -> bool:
+        """Update a user's administrator flag.
+
+        Args:
+            user_id: User primary key.
+            is_admin: Whether the user should be an administrator.
+
+        Returns:
+            ``True`` if the user existed and was updated.
+        """
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "UPDATE users SET is_admin = ?, updated_at = datetime('now') "
+                "WHERE id = ?",
+                (int(is_admin), user_id),
+            )
+        return cursor.rowcount > 0
+
+    def set_user_password(self, user_id: int, password: str) -> bool:
+        """Update a user's password.
+
+        Args:
+            user_id: User primary key.
+            password: New plain-text password to hash.
+
+        Returns:
+            ``True`` if the user existed and was updated.
+
+        Raises:
+            ValueError: If the password is empty.
+        """
+        if not password:
+            raise ValueError("Password must not be empty.")
+
+        password_hash = self._hash_password(password)
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "UPDATE users SET password_hash = ?, updated_at = datetime('now') "
+                "WHERE id = ?",
+                (password_hash, user_id),
+            )
+        return cursor.rowcount > 0
+
+    def verify_user_password(self, user_id: int, password: str) -> bool:
+        """Check whether a password matches one user's current password.
+
+        Args:
+            user_id: User primary key.
+            password: Plain-text password to verify.
+
+        Returns:
+            ``True`` when the password matches.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT password_hash FROM users WHERE id = ?", (user_id,)
+            ).fetchone()
+        return bool(row and self._verify_password(password, row["password_hash"]))
 
     def authenticate_user(
         self, username: str, password: str
@@ -293,6 +444,7 @@ class Database:
         return {
             "id": row["id"],
             "username": row["username"],
+            "is_admin": row["is_admin"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -306,6 +458,40 @@ class Database:
         with self.connect() as conn:
             row = conn.execute("SELECT COUNT(*) AS count FROM users").fetchone()
         return int(row["count"])
+
+    def count_admin_users(self) -> int:
+        """Return the number of configured administrator users.
+
+        Returns:
+            Number of rows in ``users`` where ``is_admin`` is true.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS count FROM users WHERE is_admin = 1"
+            ).fetchone()
+        return int(row["count"])
+
+    def promote_first_user_to_admin(self) -> dict[str, Any] | None:
+        """Promote the oldest existing user to administrator.
+
+        This is a migration fallback for databases that were created before
+        administrator roles existed.
+
+        Returns:
+            The promoted public user row, or ``None`` if no users exist.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM users ORDER BY id LIMIT 1"
+            ).fetchone()
+            if row is None:
+                return None
+            conn.execute(
+                "UPDATE users SET is_admin = 1, updated_at = datetime('now') "
+                "WHERE id = ?",
+                (row["id"],),
+            )
+        return self.get_public_user(int(row["id"]))
 
     def create_session(self, user_id: int, lifetime_seconds: int) -> str:
         """Create a persistent login session for a user.
@@ -346,7 +532,8 @@ class Database:
         now = int(time.time())
         with self.connect() as conn:
             row = conn.execute(
-                "SELECT users.id, users.username, users.created_at, users.updated_at "
+                "SELECT users.id, users.username, users.is_admin, "
+                "users.created_at, users.updated_at "
                 "FROM sessions "
                 "JOIN users ON users.id = sessions.user_id "
                 "WHERE sessions.token_hash = ? AND sessions.expires_at > ?",

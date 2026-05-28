@@ -15,6 +15,7 @@ zero external dependencies.
 - **Z-order controls** — bring images forward or send them back with a floating action panel
 - **Multiple projects** — create, switch between, and rename projects
 - **Login sessions** — users sign in before project and image data is served
+- **Browser user management** — admins can create users and reset passwords from the sidebar
 - **Sidebar** — browse uploaded images, view metadata, and click to select on canvas
 - **Persistent state** — positions, sizes, and z-order are saved automatically
 
@@ -53,6 +54,11 @@ JavaScript with no frameworks or build tools.
    Sign in with `admin` unless `MOODBOARD_ADMIN_USERNAME` was set before
    startup. If no users exist and no admin password is provided, the server
    prints a random first-run password to the terminal.
+
+   Use the sidebar's **Users** button as an admin to change your own password,
+   create users, and reset passwords. If `MOODBOARD_ADMIN_PASSWORD` is set,
+   it only creates the admin when missing; password changes made in the browser
+   are not overwritten on restart.
 
 ### Docker Compose
 
@@ -99,8 +105,9 @@ mood_board/
 Built with plain HTML, CSS, and JavaScript — no frameworks, no build step. The UI
 has three main components:
 
-- **Canvas** (`web/js/canvas.js`) — renders images and WebM clips on an HTML5 canvas element, handles
-  pan/zoom, drag-to-move, resize handles, and selection.
+- **Canvas** (`web/js/canvas.js`) — renders static images on an HTML5 canvas and
+  uses a DOM media layer for live GIF/WebM playback, pan/zoom, drag-to-move,
+  resize handles, and selection.
 - **Sidebar** (`web/js/sidebar.js`) — collapsible overlay listing uploaded images with
   metadata, a project name field, and a project-switching dialog.
 - **API client** (`web/js/api.js`) — thin wrapper around `fetch` for backend calls.

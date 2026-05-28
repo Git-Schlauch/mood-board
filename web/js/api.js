@@ -52,6 +52,75 @@ class ApiClient {
     }
 
     /**
+     * Fetch all users for the administrator user-management view.
+     *
+     * @returns {Promise<Array<Object>>} Public user records.
+     */
+    async listUsers() {
+        const response = await fetch("/api/users");
+        return this._handleResponse(response);
+    }
+
+    /**
+     * Create a new user.
+     *
+     * @param {string} username - New user's login name.
+     * @param {string} password - New user's initial password.
+     * @param {boolean} isAdmin - Whether the new user is an administrator.
+     * @returns {Promise<Object>} Created public user record.
+     */
+    async createUser(username, password, isAdmin = false) {
+        const response = await fetch("/api/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                username,
+                password,
+                is_admin: isAdmin,
+            }),
+        });
+        return this._handleResponse(response);
+    }
+
+    /**
+     * Change the current user's password.
+     *
+     * @param {string} currentPassword - Current password for verification.
+     * @param {string} newPassword - New password to store.
+     * @returns {Promise<Object>} Success confirmation.
+     */
+    async changePassword(currentPassword, newPassword) {
+        const response = await fetch("/api/users/password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword,
+            }),
+        });
+        return this._handleResponse(response);
+    }
+
+    /**
+     * Reset a user's password as an administrator.
+     *
+     * @param {number} userId - User ID to update.
+     * @param {string} newPassword - Replacement password.
+     * @returns {Promise<Object>} Success confirmation.
+     */
+    async resetUserPassword(userId, newPassword) {
+        const response = await fetch("/api/users/reset-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                user_id: userId,
+                new_password: newPassword,
+            }),
+        });
+        return this._handleResponse(response);
+    }
+
+    /**
      * Fetch the current project from the backend.
      *
      * If no projects exist yet the backend automatically creates a

@@ -82,6 +82,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_list_projects()
         elif request_path == "/api/images":
             self._handle_list_images()
+        elif request_path == "/api/users":
+            self._handle_list_users()
         elif request_path.startswith("/projects/"):
             self._handle_serve_image()
         else:
@@ -108,6 +110,12 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_image_delete()
         elif request_path == "/api/projects/rename":
             self._handle_rename_project()
+        elif request_path == "/api/users":
+            self._handle_create_user()
+        elif request_path == "/api/users/password":
+            self._handle_change_password()
+        elif request_path == "/api/users/reset-password":
+            self._handle_reset_user_password()
         else:
             self.send_error(404)
 
@@ -163,6 +171,105 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             {"success": True},
             headers={"Set-Cookie": self._build_clear_session_cookie()},
         )
+
+    def _handle_list_users(self) -> None:
+        """Return public user records for administrators.
+
+        ``GET /api/users``
+        """
+        if not self._require_admin():
+            return
+        self._send_json(self.db.list_users())
+
+    def _handle_create_user(self) -> None:
+        """Create a new user as an administrator.
+
+        ``POST /api/users``
+
+        Expects ``{"username": "<name>", "password": "<password>",
+        "is_admin": false}``.
+        """
+        if not self._require_admin():
+            return
+
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        username = str(body.get("username", ""))
+        password = str(body.get("password", ""))
+        is_admin = bool(body.get("is_admin", False))
+
+        try:
+            user = self.db.create_user(username, password, is_admin=is_admin)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        except sqlite3.IntegrityError:
+            self._send_json({"error": "Username already exists"}, status=409)
+            return
+
+        self._send_json(self._public_user(user), status=201)
+
+    def _handle_change_password(self) -> None:
+        """Change the authenticated user's password.
+
+        ``POST /api/users/password``
+
+        Expects ``{"current_password": "<password>",
+        "new_password": "<password>"}``.
+        """
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        current_password = str(body.get("current_password", ""))
+        new_password = str(body.get("new_password", ""))
+        user_id = int(self.current_user["id"])
+
+        if not self.db.verify_user_password(user_id, current_password):
+            self._send_json({"error": "Current password is incorrect"}, status=403)
+            return
+
+        try:
+            self.db.set_user_password(user_id, new_password)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+
+        self._send_json({"success": True})
+
+    def _handle_reset_user_password(self) -> None:
+        """Reset another user's password as an administrator.
+
+        ``POST /api/users/reset-password``
+
+        Expects ``{"user_id": <int>, "new_password": "<password>"}``.
+        """
+        if not self._require_admin():
+            return
+
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        user_id = body.get("user_id")
+        new_password = str(body.get("new_password", ""))
+        if user_id is None:
+            self._send_json({"error": "Missing user_id"}, status=400)
+            return
+
+        try:
+            updated = self.db.set_user_password(int(user_id), new_password)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+
+        if not updated:
+            self._send_json({"error": "User not found"}, status=404)
+            return
+
+        self._send_json({"success": True})
 
     def _handle_current_project(self) -> None:
         """Return the current project, auto-creating one if none exist.
@@ -669,6 +776,18 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         self.current_user = user
         return True
 
+    def _require_admin(self) -> bool:
+        """Require the authenticated user to be an administrator.
+
+        Returns:
+            ``True`` when the current user is an administrator, otherwise sends
+            a 403 JSON response and returns ``False``.
+        """
+        if not self.current_user or not self.current_user.get("is_admin"):
+            self._send_json({"error": "Administrator access required"}, status=403)
+            return False
+        return True
+
     def _get_authenticated_user(self) -> dict[str, Any] | None:
         """Resolve the current user from the session cookie.
 
@@ -741,7 +860,11 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         Returns:
             Dict containing only non-sensitive user fields.
         """
-        return {"id": user["id"], "username": user["username"]}
+        return {
+            "id": user["id"],
+            "username": user["username"],
+            "is_admin": bool(user.get("is_admin", False)),
+        }
 
     @staticmethod
     def _is_supported_image_upload(filename: str, file_bytes: bytes) -> bool:
@@ -813,10 +936,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def bootstrap_authentication(db: Database) -> None:
     """Ensure at least one login exists before serving requests.
 
-    If ``MOODBOARD_ADMIN_PASSWORD`` is set, the named admin user is created or
-    updated on every startup.  If the database has no users and no password
-    was provided, a random one-time admin password is generated and printed so
-    local development remains usable without shipping default credentials.
+    If ``MOODBOARD_ADMIN_PASSWORD`` is set, the named admin user is created
+    when missing and promoted when present.  Existing passwords are left alone
+    so changes made in the browser survive container restarts.  If the database
+    has no users and no password was provided, a random one-time admin password
+    is generated and printed so local development remains usable without
+    shipping default credentials.
 
     Args:
         db: Initialised database instance.
@@ -825,19 +950,30 @@ def bootstrap_authentication(db: Database) -> None:
     password = os.environ.get("MOODBOARD_ADMIN_PASSWORD")
 
     if password:
-        user = db.create_or_update_user(username, password)
+        user = db.get_public_user_by_username(username)
+        if user is None:
+            user = db.create_user(username, password, is_admin=True)
+        elif not user.get("is_admin"):
+            db.set_user_admin(int(user["id"]), True)
+            user = db.get_public_user(int(user["id"])) or user
         db.assign_unowned_projects(user["id"])
         print(f"Authentication ready for user '{username}'.")
         return
 
     if db.count_users() == 0:
         generated_password = secrets.token_urlsafe(18)
-        user = db.create_or_update_user(username, generated_password)
+        user = db.create_or_update_user(username, generated_password, is_admin=True)
         db.assign_unowned_projects(user["id"])
         print("No MOODBOARD_ADMIN_PASSWORD was set.")
         print(f"Created initial user '{username}' with password: {generated_password}")
         print("Set MOODBOARD_ADMIN_PASSWORD to control this credential explicitly.")
         return
+
+    if db.count_admin_users() == 0:
+        promoted = db.promote_first_user_to_admin()
+        if promoted:
+            print(f"Promoted '{promoted['username']}' to administrator.")
+            return
 
     print("Authentication ready.")
 

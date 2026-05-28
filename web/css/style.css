@@ -120,6 +120,27 @@ html, body {
     cursor: grab;
 }
 
+.canvas-media-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.canvas-media {
+    position: absolute;
+    display: block;
+    object-fit: fill;
+    pointer-events: none;
+    user-select: none;
+}
+
+.canvas-media--selected {
+    outline: 2px dashed rgba(255, 255, 255, 0.9);
+    outline-offset: 2px;
+}
+
 /* ===================================================================
    Canvas toolbar
    =================================================================== */
@@ -262,6 +283,7 @@ html, body {
 }
 
 .sidebar__open-btn,
+.sidebar__users-btn,
 .sidebar__logout-btn {
     width: 100%;
     padding: 8px 12px;
@@ -275,10 +297,12 @@ html, body {
 }
 
 .sidebar__open-btn:hover,
+.sidebar__users-btn:hover,
 .sidebar__logout-btn:hover {
     background-color: #3a3a5a;
 }
 
+.sidebar__users-btn,
 .sidebar__logout-btn {
     margin-top: 8px;
 }
@@ -437,6 +461,10 @@ html, body {
     max-width: 90vw;
 }
 
+.dialog--wide {
+    width: min(720px, 92vw);
+}
+
 .dialog h2 {
     margin-bottom: 16px;
     font-size: 18px;
@@ -453,6 +481,66 @@ html, body {
     border: none;
     border-top: 1px solid #2a2a4a;
     margin: 16px 0;
+}
+
+.dialog__stack {
+    display: grid;
+    gap: 8px;
+}
+
+.dialog__user-create {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto;
+    gap: 8px;
+    align-items: center;
+}
+
+.dialog__checkbox {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #c8c8df;
+    font-size: 13px;
+    white-space: nowrap;
+}
+
+.dialog__user-list {
+    display: grid;
+    gap: 8px;
+    max-height: 320px;
+    overflow-y: auto;
+}
+
+.dialog__user-row {
+    display: grid;
+    grid-template-columns: minmax(120px, 1fr) minmax(0, 1fr) auto;
+    gap: 8px;
+    align-items: center;
+    padding: 8px;
+    background-color: #16213e;
+    border: 1px solid #2a2a4a;
+    border-radius: 4px;
+}
+
+.dialog__text-input {
+    width: 100%;
+    min-width: 0;
+    padding: 8px 10px;
+    background-color: #16213e;
+    color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+    font-size: 13px;
+}
+
+.dialog__text-input::placeholder {
+    color: #6a6a8a;
+}
+
+.dialog__status {
+    min-height: 18px;
+    color: #b8b8d4;
+    font-size: 12px;
 }
 
 /* Dropdown */

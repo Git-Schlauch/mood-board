@@ -19,12 +19,18 @@ Projects are owned by users. Project lists, the active project setting, canvas
 state, uploaded images, image updates, and image file serving are filtered by
 the authenticated user so one user only sees their own canvas data.
 
+Administrators can open **Users** in the sidebar to create accounts and reset
+passwords. All signed-in users can change their own password from the same
+dialog; non-admin users see it as **Account**.
+
 ## First user
 
 Set `MOODBOARD_ADMIN_USERNAME` and `MOODBOARD_ADMIN_PASSWORD` before starting
-the server or Docker Compose stack. If no users exist and no admin password is
-provided, the local development server creates an `admin` user with a random
-password and prints it to the server log.
+the server or Docker Compose stack. The configured admin is created when it is
+missing and promoted when it already exists, but an existing password is not
+rewritten on each restart. If no users exist and no admin password is provided,
+the local development server creates an `admin` user with a random password and
+prints it to the server log.
 
 ## Uploads
 

@@ -124,6 +124,7 @@ class CanvasController {
         this._resizeStartItemY = 0;
 
         this._syncCanvasSize();
+        this._buildMediaLayer();
         this._buildActionPanel();
         this._buildCanvasToolbar();
         this._bindDragEvents();
@@ -149,6 +150,20 @@ class CanvasController {
         const rect = this.canvas.getBoundingClientRect();
         this.canvas.width = rect.width;
         this.canvas.height = rect.height;
+    }
+
+    /**
+     * Build the DOM media layer used for live animated GIF/WebM playback.
+     *
+     * Canvas drawImage does not reliably advance GIF frames in all browsers,
+     * so animated media is painted by the browser on an overlay while the
+     * canvas keeps handling selection, resize, and persistence.
+     * @private
+     */
+    _buildMediaLayer() {
+        this._mediaLayer = document.createElement("div");
+        this._mediaLayer.className = "canvas-media-layer";
+        this.canvas.parentElement.appendChild(this._mediaLayer);
     }
 
     /**
@@ -220,6 +235,7 @@ class CanvasController {
 
         ctx.restore();
 
+        this._syncDomMediaLayer();
         this._updateActionPanelPosition();
         this._updateCanvasToolbar();
         this._syncMediaRenderLoop();
@@ -297,6 +313,9 @@ class CanvasController {
      * @private
      */
     _drawableSource(item) {
+        if (this._usesDomMedia(item)) {
+            return null;
+        }
         if (!item.loopEnabled && item.frozenFrame) {
             return item.frozenFrame;
         }
@@ -315,7 +334,8 @@ class CanvasController {
         const shouldRun = this._items.some((item) =>
             item.type === "image" &&
             item.loopEnabled &&
-            (item.mediaKind === "video" || item.mediaKind === "gif")
+            item.mediaKind === "video" &&
+            !this._usesDomMedia(item)
         );
         if (shouldRun && !this._mediaRenderLoopActive) {
             this._mediaRenderLoopActive = true;
@@ -336,6 +356,116 @@ class CanvasController {
         }
         this._scheduleRender();
         requestAnimationFrame(() => this._mediaRenderTick());
+    }
+
+    /**
+     * Return whether an item should be displayed by the DOM overlay.
+     *
+     * Animated GIFs and active WebM videos are rendered as regular browser
+     * media elements so they animate smoothly even when canvas drawImage would
+     * otherwise show only a static frame.
+     *
+     * @param {Object} item - Canvas item to inspect.
+     * @returns {boolean} ``true`` when a DOM media element should be shown.
+     * @private
+     */
+    _usesDomMedia(item) {
+        return Boolean(
+            item &&
+            item.type === "image" &&
+            item.loopEnabled &&
+            item.media &&
+            (item.mediaKind === "gif" || item.mediaKind === "video")
+        );
+    }
+
+    /**
+     * Position live animated media over the canvas.
+     *
+     * The media elements use CSS-pixel coordinates derived from the same world
+     * transform as the canvas, so dragging, resizing, zooming, panning, and
+     * z-order changes stay visually aligned.
+     * @private
+     */
+    _syncDomMediaLayer() {
+        if (!this._mediaLayer) {
+            return;
+        }
+
+        const active = new Set();
+        this._items.forEach((item, index) => {
+            if (!this._usesDomMedia(item)) {
+                this._detachDomMedia(item);
+                return;
+            }
+
+            const media = item.media;
+            active.add(media);
+            if (media.parentElement !== this._mediaLayer) {
+                media.classList.add("canvas-media");
+                media.draggable = false;
+                this._mediaLayer.appendChild(media);
+            }
+
+            const topLeft = this._worldToCss(item.x, item.y);
+            const bottomRight = this._worldToCss(
+                item.x + item.width,
+                item.y + item.height
+            );
+
+            media.style.left = `${topLeft.x}px`;
+            media.style.top = `${topLeft.y}px`;
+            media.style.width = `${bottomRight.x - topLeft.x}px`;
+            media.style.height = `${bottomRight.y - topLeft.y}px`;
+            media.style.zIndex = String(index + 1);
+            media.classList.toggle("canvas-media--selected", item === this._selectedItem);
+
+            if (item.mediaKind === "video") {
+                media.loop = true;
+                media.muted = true;
+                media.playsInline = true;
+                if (media.paused) {
+                    media.play().catch((err) => {
+                        console.error("Failed to start WebM playback:", err);
+                    });
+                }
+            }
+        });
+
+        Array.from(this._mediaLayer.children).forEach((child) => {
+            if (!active.has(child)) {
+                child.remove();
+            }
+        });
+    }
+
+    /**
+     * Remove one item's media element from the DOM overlay.
+     *
+     * @param {Object} item - Canvas item whose overlay media should be removed.
+     * @private
+     */
+    _detachDomMedia(item) {
+        if (item && item.media && item.media.parentElement === this._mediaLayer) {
+            item.media.classList.remove("canvas-media", "canvas-media--selected");
+            item.media.removeAttribute("style");
+            item.media.remove();
+        }
+    }
+
+    /**
+     * Remove every media element from the DOM overlay.
+     *
+     * @private
+     */
+    _clearDomMediaLayer() {
+        if (!this._mediaLayer) {
+            return;
+        }
+        for (const item of this._items) {
+            this._detachDomMedia(item);
+        }
+        this._mediaLayer.replaceChildren();
     }
 
     /**
@@ -1172,6 +1302,9 @@ class CanvasController {
         item.frozenFrame = item.loopEnabled ? null : this._captureMediaFrame(item);
 
         if (item.mediaKind !== "video" || !item.media) {
+            if (!item.loopEnabled) {
+                this._detachDomMedia(item);
+            }
             this._scheduleRender();
             return;
         }
@@ -1184,6 +1317,7 @@ class CanvasController {
             });
         } else {
             item.media.pause();
+            this._detachDomMedia(item);
         }
         this._scheduleRender();
     }
@@ -1589,6 +1723,7 @@ class CanvasController {
         if (idx !== -1) {
             this._items.splice(idx, 1);
         }
+        this._detachDomMedia(item);
         this._selectedItem = null;
         this._notifySelectionChange();
 
@@ -1742,6 +1877,7 @@ class CanvasController {
      * loading the new project's images.
      */
     clear() {
+        this._clearDomMediaLayer();
         this._items = [];
         this._selectedItem = null;
         this._dragging = false;

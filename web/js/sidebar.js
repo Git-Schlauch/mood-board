@@ -21,6 +21,7 @@ class Sidebar {
      *     ``sidebar.currentProject`` for the new project.
      * @param {Function} [options.onLogout] - Callback invoked when the user
      *     clicks the logout button.
+     * @param {Object} [options.user] - Authenticated public user record.
      * @param {CanvasController} [options.canvas] - Reference to the
      *     canvas controller, used to query item positions and selection.
      */
@@ -37,11 +38,17 @@ class Sidebar {
         /** @type {HTMLElement|null} The dialog overlay element. */
         this._dialogOverlay = null;
 
+        /** @type {HTMLElement|null} The user dialog overlay element. */
+        this._userDialogOverlay = null;
+
         /** @type {Function|null} */
         this._onProjectChange = options.onProjectChange || null;
 
         /** @type {Function|null} */
         this._onLogout = options.onLogout || null;
+
+        /** @type {Object|null} */
+        this._user = options.user || null;
 
         /** @type {CanvasController|null} */
         this._canvas = options.canvas || null;
@@ -95,6 +102,13 @@ class Sidebar {
 
         this._content.appendChild(this._openBtn);
 
+        this._usersBtn = document.createElement("button");
+        this._usersBtn.className = "sidebar__users-btn";
+        this._usersBtn.textContent = this._user && this._user.is_admin
+            ? "Users"
+            : "Account";
+        this._content.appendChild(this._usersBtn);
+
         this._logoutBtn = document.createElement("button");
         this._logoutBtn.className = "sidebar__logout-btn";
         this._logoutBtn.textContent = "Log out";
@@ -131,12 +145,258 @@ class Sidebar {
     _bindEvents() {
         this._toggleBtn.addEventListener("click", () => this.toggle());
         this._openBtn.addEventListener("click", () => this.openProjectDialog());
+        if (this._usersBtn) {
+            this._usersBtn.addEventListener("click", () => this.openUserDialog());
+        }
         this._logoutBtn.addEventListener("click", () => {
             if (this._onLogout) {
                 this._onLogout();
             }
         });
         this._projectName.addEventListener("dblclick", () => this._startRename());
+    }
+
+    /* ------------------------------------------------------------------
+     *  User management dialog
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Open the user management dialog.
+     *
+     * Every user can change their own password.  Administrators can also
+     * create users and reset passwords from the same dialog.
+     */
+    async openUserDialog() {
+        if (this._userDialogOverlay) {
+            return;
+        }
+
+        this._userDialogOverlay = document.createElement("div");
+        this._userDialogOverlay.className = "dialog-overlay";
+
+        const dialog = document.createElement("div");
+        dialog.className = "dialog dialog--wide";
+
+        const title = document.createElement("h2");
+        title.textContent = this._user && this._user.is_admin ? "Users" : "Account";
+        dialog.appendChild(title);
+
+        this._buildPasswordSection(dialog);
+
+        if (this._user && this._user.is_admin) {
+            const hr = document.createElement("hr");
+            dialog.appendChild(hr);
+            await this._buildAdminUserSection(dialog);
+        }
+
+        const actions = document.createElement("div");
+        actions.className = "dialog__actions";
+
+        const closeBtn = document.createElement("button");
+        closeBtn.className = "dialog__cancel-btn";
+        closeBtn.textContent = "Close";
+        closeBtn.addEventListener("click", () => this.closeUserDialog());
+
+        actions.appendChild(closeBtn);
+        dialog.appendChild(actions);
+
+        this._userDialogOverlay.appendChild(dialog);
+        document.body.appendChild(this._userDialogOverlay);
+    }
+
+    /**
+     * Close and remove the user management dialog from the DOM.
+     */
+    closeUserDialog() {
+        if (this._userDialogOverlay) {
+            this._userDialogOverlay.remove();
+            this._userDialogOverlay = null;
+        }
+    }
+
+    /**
+     * Build the password-change form.
+     *
+     * @param {HTMLElement} dialog - Dialog element to append into.
+     * @private
+     */
+    _buildPasswordSection(dialog) {
+        const heading = document.createElement("h3");
+        heading.textContent = "Change Password";
+        dialog.appendChild(heading);
+
+        const row = document.createElement("div");
+        row.className = "dialog__stack";
+
+        const current = this._buildDialogInput(
+            "password", "Current password", "current-password"
+        );
+        const next = this._buildDialogInput("password", "New password", "new-password");
+        const save = document.createElement("button");
+        save.className = "dialog__create-btn";
+        save.textContent = "Save";
+        const status = this._buildDialogStatus();
+
+        save.addEventListener("click", async () => {
+            status.textContent = "";
+            try {
+                await this.api.changePassword(current.value, next.value);
+                current.value = "";
+                next.value = "";
+                status.textContent = "Password updated.";
+            } catch (err) {
+                status.textContent = err.message || "Could not update password.";
+            }
+        });
+
+        row.appendChild(current);
+        row.appendChild(next);
+        row.appendChild(save);
+        row.appendChild(status);
+        dialog.appendChild(row);
+    }
+
+    /**
+     * Build administrator-only user management controls.
+     *
+     * @param {HTMLElement} dialog - Dialog element to append into.
+     * @returns {Promise<void>} Resolves after users are loaded.
+     * @private
+     */
+    async _buildAdminUserSection(dialog) {
+        const heading = document.createElement("h3");
+        heading.textContent = "Manage Users";
+        dialog.appendChild(heading);
+
+        const createRow = document.createElement("div");
+        createRow.className = "dialog__user-create";
+        const username = this._buildDialogInput("text", "Username", "username");
+        const password = this._buildDialogInput(
+            "password", "Initial password", "new-password"
+        );
+
+        const adminLabel = document.createElement("label");
+        adminLabel.className = "dialog__checkbox";
+        const admin = document.createElement("input");
+        admin.type = "checkbox";
+        adminLabel.appendChild(admin);
+        adminLabel.appendChild(document.createTextNode("Admin"));
+
+        const createBtn = document.createElement("button");
+        createBtn.className = "dialog__create-btn";
+        createBtn.textContent = "Create";
+        const status = this._buildDialogStatus();
+        const list = document.createElement("div");
+        list.className = "dialog__user-list";
+
+        const refresh = async () => {
+            list.innerHTML = "";
+            const users = await this.api.listUsers();
+            for (const user of users) {
+                list.appendChild(this._buildUserRow(user, status));
+            }
+        };
+
+        createBtn.addEventListener("click", async () => {
+            status.textContent = "";
+            try {
+                await this.api.createUser(
+                    username.value.trim(),
+                    password.value,
+                    admin.checked
+                );
+                username.value = "";
+                password.value = "";
+                admin.checked = false;
+                status.textContent = "User created.";
+                await refresh();
+            } catch (err) {
+                status.textContent = err.message || "Could not create user.";
+            }
+        });
+
+        createRow.appendChild(username);
+        createRow.appendChild(password);
+        createRow.appendChild(adminLabel);
+        createRow.appendChild(createBtn);
+        dialog.appendChild(createRow);
+        dialog.appendChild(status);
+        dialog.appendChild(list);
+
+        try {
+            await refresh();
+        } catch (err) {
+            status.textContent = err.message || "Could not load users.";
+        }
+    }
+
+    /**
+     * Build one row in the administrator user list.
+     *
+     * @param {Object} user - Public user record.
+     * @param {HTMLElement} status - Shared status element.
+     * @returns {HTMLElement} User row element.
+     * @private
+     */
+    _buildUserRow(user, status) {
+        const row = document.createElement("div");
+        row.className = "dialog__user-row";
+
+        const name = document.createElement("span");
+        name.textContent = user.is_admin ? `${user.username} (admin)` : user.username;
+
+        const password = this._buildDialogInput(
+            "password", "New password", "new-password"
+        );
+        const reset = document.createElement("button");
+        reset.className = "dialog__create-btn";
+        reset.textContent = "Reset";
+        reset.addEventListener("click", async () => {
+            status.textContent = "";
+            try {
+                await this.api.resetUserPassword(user.id, password.value);
+                password.value = "";
+                status.textContent = `Password reset for ${user.username}.`;
+            } catch (err) {
+                status.textContent = err.message || "Could not reset password.";
+            }
+        });
+
+        row.appendChild(name);
+        row.appendChild(password);
+        row.appendChild(reset);
+        return row;
+    }
+
+    /**
+     * Create a dialog input element.
+     *
+     * @param {string} type - Input type.
+     * @param {string} placeholder - Placeholder text.
+     * @param {string} autocomplete - Browser autocomplete token.
+     * @returns {HTMLInputElement} Configured input element.
+     * @private
+     */
+    _buildDialogInput(type, placeholder, autocomplete) {
+        const input = document.createElement("input");
+        input.type = type;
+        input.className = "dialog__text-input";
+        input.placeholder = placeholder;
+        input.autocomplete = autocomplete;
+        return input;
+    }
+
+    /**
+     * Create a dialog status text element.
+     *
+     * @returns {HTMLElement} Status element.
+     * @private
+     */
+    _buildDialogStatus() {
+        const status = document.createElement("p");
+        status.className = "dialog__status";
+        status.setAttribute("role", "status");
+        return status;
     }
 
     /* ------------------------------------------------------------------

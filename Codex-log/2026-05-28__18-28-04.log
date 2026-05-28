@@ -1,0 +1,19 @@
+Changed files:
+- backend/database.py: added administrator flags, public user lookup, admin promotion, password reset helpers, and session admin data.
+- backend/server.py: added user-management API routes, admin checks, browser password changes, and non-overwriting admin bootstrap behavior.
+- web/js/api.js: added user-management client calls.
+- web/index.html: passed the authenticated user into the sidebar.
+- web/js/sidebar.js: added Account/Users dialog for password changes, admin user creation, and password resets.
+- web/js/canvas.js: moved live GIF/WebM playback to a DOM media overlay so animated files keep playing instead of freezing on canvas drawImage.
+- web/css/style.css: styled the media overlay and user-management dialog.
+- README.md, docs/security.md, docs/backend/database.md: documented browser user management, admin bootstrap behavior, and the admin database field.
+
+Checks:
+- node --check web/js/canvas.js
+- node --check web/js/sidebar.js
+- node --check web/js/api.js
+- python3 -m py_compile backend/database.py backend/server.py
+- in-memory database authentication smoke test
+- git diff --check
+
+Agent: GPT-5 Codex

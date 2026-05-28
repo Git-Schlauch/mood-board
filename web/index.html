@@ -45,6 +45,7 @@
 
             sidebar = new Sidebar(api, {
                 canvas: canvasCtrl,
+                user,
                 onLogout: () => auth.logout(),
                 onProjectChange: () => {
                     canvasCtrl.clear();

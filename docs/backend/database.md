@@ -23,6 +23,7 @@ The `backend/database.py` module provides all persistent storage for the mood bo
 | `id`            | INTEGER | Primary key, autoincrement         |
 | `username`      | TEXT    | Unique login name                  |
 | `password_hash` | TEXT    | PBKDF2-SHA256 password hash        |
+| `is_admin`      | INTEGER | Browser user-management permission |
 | `created_at`    | TEXT    | ISO 8601 timestamp                 |
 | `updated_at`    | TEXT    | ISO 8601 timestamp                 |
 
@@ -74,8 +75,8 @@ db.initialize()
 db = Database(":memory:")
 db.initialize()
 
-# Create or update a user
-user = db.create_or_update_user("admin", "long-password")
+# Create or update an administrator user
+user = db.create_or_update_user("admin", "long-password", is_admin=True)
 
 # Create a project
 project = db.create_project("my-mood-board", user_id=user["id"])
