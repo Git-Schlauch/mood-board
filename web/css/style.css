@@ -159,7 +159,6 @@ html, body {
     align-items: center;
     max-width: min(92vw, 1400px);
     max-height: 92vh;
-    gap: 10px;
 }
 
 .canvas-preview__media {
@@ -171,13 +170,54 @@ html, body {
 }
 
 .canvas-preview__caption {
+    position: absolute;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
     max-width: min(92vw, 1400px);
+    padding: 6px 10px;
+    background-color: rgba(26, 26, 46, 0.82);
+    border: 1px solid rgba(224, 224, 224, 0.22);
+    border-radius: 4px;
     color: #e0e0e0;
     font-size: 13px;
     text-align: center;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.canvas-preview__nav {
+    position: absolute;
+    top: 50%;
+    width: 44px;
+    height: 64px;
+    transform: translateY(-50%);
+    background-color: rgba(26, 26, 46, 0.78);
+    color: #e0e0e0;
+    border: 1px solid rgba(224, 224, 224, 0.24);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 42px;
+    line-height: 1;
+}
+
+.canvas-preview__nav:hover,
+.canvas-preview__nav:focus {
+    background-color: rgba(42, 42, 74, 0.95);
+}
+
+.canvas-preview__nav:disabled {
+    cursor: default;
+    opacity: 0.28;
+}
+
+.canvas-preview__nav--left {
+    left: 18px;
+}
+
+.canvas-preview__nav--right {
+    right: 18px;
 }
 
 /* ===================================================================

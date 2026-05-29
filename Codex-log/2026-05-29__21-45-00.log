@@ -1,0 +1,11 @@
+Changed files:
+- web/js/canvas.js: lowered minimum zoom from 15% to 3%, changed preview close behavior to single-click/Escape, and added preview navigation with arrow keys and left/right buttons.
+- web/css/style.css: styled preview navigation buttons and repositioned the preview caption.
+- README.md: updated the preview feature description.
+
+Checks:
+- node --check web/js/canvas.js
+- git diff --check
+- browser smoke test for app load and console errors
+
+Agent: GPT-5 Codex

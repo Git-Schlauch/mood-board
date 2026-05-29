@@ -79,7 +79,7 @@ class CanvasController {
         this._zoom = 1;
 
         /** @type {number} Minimum allowed zoom factor. */
-        this._minZoom = 0.15;
+        this._minZoom = 0.03;
 
         /** @type {number} Maximum allowed zoom factor. */
         this._maxZoom = 5;
@@ -131,6 +131,21 @@ class CanvasController {
 
         /** @type {HTMLElement|null} Large media preview overlay. */
         this._previewOverlay = null;
+
+        /** @type {HTMLElement|null} Preview frame holding the current media. */
+        this._previewFrame = null;
+
+        /** @type {HTMLElement|null} Preview caption element. */
+        this._previewCaption = null;
+
+        /** @type {HTMLButtonElement|null} Previous preview button. */
+        this._previewPrevBtn = null;
+
+        /** @type {HTMLButtonElement|null} Next preview button. */
+        this._previewNextBtn = null;
+
+        /** @type {Object|null} Current previewed canvas item. */
+        this._previewItem = null;
 
         /** @type {Function|null} Escape-key handler for the preview overlay. */
         this._previewKeyHandler = null;
@@ -1449,7 +1464,7 @@ class CanvasController {
      * Open a large, temporary preview for a canvas item.
      *
      * The preview uses a fresh media element so the canvas item remains exactly
-     * where it was.  Double-clicking the preview, or pressing Escape, closes it.
+     * where it was.  Clicking the overlay, or pressing Escape, closes it.
      *
      * @param {Object} item - Loaded canvas item to preview.
      * @private
@@ -1461,33 +1476,133 @@ class CanvasController {
         overlay.className = "canvas-preview";
         overlay.setAttribute("role", "dialog");
         overlay.setAttribute("aria-label", "Media preview");
-        overlay.title = "Double-click to close";
+        overlay.title = "Click to close";
 
         const frame = document.createElement("div");
         frame.className = "canvas-preview__frame";
 
-        const media = this._buildPreviewMedia(item);
-        frame.appendChild(media);
-
         const caption = document.createElement("div");
         caption.className = "canvas-preview__caption";
-        caption.textContent = item.imageRecord.filename;
-        frame.appendChild(caption);
 
+        const prevBtn = this._buildPreviewNavButton("left");
+        const nextBtn = this._buildPreviewNavButton("right");
+        overlay.appendChild(prevBtn);
         overlay.appendChild(frame);
-        overlay.addEventListener("dblclick", (event) => {
+        overlay.appendChild(nextBtn);
+        overlay.appendChild(caption);
+        overlay.addEventListener("click", (event) => {
             event.preventDefault();
             this._closePreview();
         });
 
         this._previewKeyHandler = (event) => {
             if (event.key === "Escape") {
+                event.preventDefault();
                 this._closePreview();
+            } else if (event.key === "ArrowLeft") {
+                event.preventDefault();
+                this._showAdjacentPreview(-1);
+            } else if (event.key === "ArrowRight") {
+                event.preventDefault();
+                this._showAdjacentPreview(1);
             }
         };
         window.addEventListener("keydown", this._previewKeyHandler);
         document.body.appendChild(overlay);
         this._previewOverlay = overlay;
+        this._previewFrame = frame;
+        this._previewCaption = caption;
+        this._previewPrevBtn = prevBtn;
+        this._previewNextBtn = nextBtn;
+        this._renderPreviewItem(item);
+    }
+
+    /**
+     * Build a preview navigation button.
+     *
+     * @param {string} direction - ``left`` or ``right``.
+     * @returns {HTMLButtonElement} Navigation button.
+     * @private
+     */
+    _buildPreviewNavButton(direction) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `canvas-preview__nav canvas-preview__nav--${direction}`;
+        button.textContent = direction === "left" ? "\u2039" : "\u203A";
+        button.title = direction === "left" ? "Previous media" : "Next media";
+        button.addEventListener("click", (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            this._showAdjacentPreview(direction === "left" ? -1 : 1);
+        });
+        return button;
+    }
+
+    /**
+     * Replace the preview media with another item.
+     *
+     * @param {Object} item - Canvas item to display.
+     * @private
+     */
+    _renderPreviewItem(item) {
+        if (!this._previewFrame || !this._previewCaption) {
+            return;
+        }
+        const oldVideo = this._previewFrame.querySelector("video");
+        if (oldVideo) {
+            oldVideo.pause();
+        }
+        this._previewFrame.replaceChildren(this._buildPreviewMedia(item));
+        this._previewCaption.textContent = item.imageRecord.filename;
+        this._previewItem = item;
+        this._updatePreviewNavButtons();
+    }
+
+    /**
+     * Show the next or previous previewable item.
+     *
+     * @param {number} direction - ``-1`` for previous, ``1`` for next.
+     * @private
+     */
+    _showAdjacentPreview(direction) {
+        const items = this._previewableItems();
+        if (!this._previewItem || items.length <= 1) {
+            return;
+        }
+        const currentIndex = items.indexOf(this._previewItem);
+        if (currentIndex === -1) {
+            return;
+        }
+        const nextIndex = (currentIndex + direction + items.length) % items.length;
+        this._selectedItem = items[nextIndex];
+        this._notifySelectionChange();
+        this._renderPreviewItem(items[nextIndex]);
+        this._scheduleRender();
+    }
+
+    /**
+     * Return loaded media items that can be shown in the preview gallery.
+     *
+     * @returns {Array<Object>} Previewable items in current draw order.
+     * @private
+     */
+    _previewableItems() {
+        return this._items.filter((item) => item.type === "image" && item.imageRecord);
+    }
+
+    /**
+     * Update preview navigation button disabled state.
+     *
+     * @private
+     */
+    _updatePreviewNavButtons() {
+        const multipleItems = this._previewableItems().length > 1;
+        if (this._previewPrevBtn) {
+            this._previewPrevBtn.disabled = !multipleItems;
+        }
+        if (this._previewNextBtn) {
+            this._previewNextBtn.disabled = !multipleItems;
+        }
     }
 
     /**
@@ -1544,6 +1659,11 @@ class CanvasController {
         }
         this._previewOverlay.remove();
         this._previewOverlay = null;
+        this._previewFrame = null;
+        this._previewCaption = null;
+        this._previewPrevBtn = null;
+        this._previewNextBtn = null;
+        this._previewItem = null;
     }
 
     /**
