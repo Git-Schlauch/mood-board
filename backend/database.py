@@ -79,6 +79,7 @@ _SCHEMA_IMAGES = """\
 CREATE TABLE IF NOT EXISTS images (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     project_id    INTEGER NOT NULL,
+    layer_id      INTEGER,
     filename      TEXT    NOT NULL,
     pos_x         REAL    NOT NULL DEFAULT 0.0,
     pos_y         REAL    NOT NULL DEFAULT 0.0,
@@ -88,9 +89,24 @@ CREATE TABLE IF NOT EXISTS images (
     native_width  INTEGER NOT NULL DEFAULT 0,
     native_height INTEGER NOT NULL DEFAULT 0,
     loop_enabled  INTEGER NOT NULL DEFAULT 1,
+    locked        INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     updated_at    TEXT    NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (layer_id) REFERENCES project_layers(id) ON DELETE SET NULL
+);
+"""
+
+_SCHEMA_PROJECT_LAYERS = """\
+CREATE TABLE IF NOT EXISTS project_layers (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER NOT NULL,
+    name       TEXT    NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT    NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    UNIQUE (project_id, name)
 );
 """
 
@@ -102,6 +118,8 @@ _IMAGE_UPDATABLE_FIELDS: set[str] = {
     "rotation",
     "z_index",
     "loop_enabled",
+    "locked",
+    "layer_id",
 }
 
 # Pattern for valid project names (alphanumeric, hyphens, underscores, spaces).
@@ -203,6 +221,7 @@ class Database:
             conn.execute(_SCHEMA_PROJECTS)
             conn.execute(_SCHEMA_SETTINGS)
             conn.execute(_SCHEMA_USER_SETTINGS)
+            conn.execute(_SCHEMA_PROJECT_LAYERS)
             conn.execute(_SCHEMA_IMAGES)
 
             # Migrate existing databases: add native dimension columns if
@@ -212,6 +231,8 @@ class Database:
                 "ALTER TABLE images ADD COLUMN native_width INTEGER NOT NULL DEFAULT 0",
                 "ALTER TABLE images ADD COLUMN native_height INTEGER NOT NULL DEFAULT 0",
                 "ALTER TABLE images ADD COLUMN loop_enabled INTEGER NOT NULL DEFAULT 1",
+                "ALTER TABLE images ADD COLUMN locked INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE images ADD COLUMN layer_id INTEGER",
                 "ALTER TABLE projects ADD COLUMN user_id INTEGER",
                 "ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0",
             )
@@ -669,10 +690,30 @@ class Database:
             self.set_user_setting(user_id, "current_project_id", str(projects[0]["id"]))
             return projects[0]
 
-        # No projects exist — create a default one.
-        project = self.create_project("Untitled Project", user_id=user_id)
+        # No projects exist — create a default one.  Older databases enforce
+        # project names globally, so fall back to a user-specific name when the
+        # friendly default already exists for someone else.
+        project = self._create_default_project(user_id)
         self.set_user_setting(user_id, "current_project_id", str(project["id"]))
         return project
+
+    def _create_default_project(self, user_id: int) -> dict[str, Any]:
+        """Create a first project for a user.
+
+        Args:
+            user_id: Owner of the project.
+
+        Returns:
+            Created project row.
+        """
+        names = ["Untitled Project", f"Untitled Project {user_id}"]
+        names.extend(f"Untitled Project {user_id} {i}" for i in range(2, 100))
+        for name in names:
+            try:
+                return self.create_project(name, user_id=user_id)
+            except sqlite3.IntegrityError:
+                continue
+        raise sqlite3.IntegrityError("Could not create a unique default project name")
 
     # -- project CRUD --------------------------------------------------------
 
@@ -854,12 +895,121 @@ class Database:
 
         return True
 
+    # -- layer CRUD ---------------------------------------------------------
+
+    def ensure_default_layer(self, project_id: int) -> dict[str, Any]:
+        """Return a project's first layer, creating it if needed.
+
+        Args:
+            project_id: The owning project's primary key.
+
+        Returns:
+            The bottom-most layer for the project.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM project_layers WHERE project_id = ? "
+                "ORDER BY sort_order ASC, id ASC LIMIT 1",
+                (project_id,),
+            ).fetchone()
+            if row is None:
+                cursor = conn.execute(
+                    "INSERT INTO project_layers (project_id, name, sort_order) "
+                    "VALUES (?, ?, ?)",
+                    (project_id, "Layer 1", 0),
+                )
+                row = conn.execute(
+                    "SELECT * FROM project_layers WHERE id = ?",
+                    (cursor.lastrowid,),
+                ).fetchone()
+        return dict(row)
+
+    def list_layers(self, project_id: int) -> list[dict[str, Any]]:
+        """Return all layers for a project ordered bottom to top.
+
+        Args:
+            project_id: The owning project's primary key.
+
+        Returns:
+            List of layer rows.
+        """
+        default_layer = self.ensure_default_layer(project_id)
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE images SET layer_id = ? "
+                "WHERE project_id = ? AND layer_id IS NULL",
+                (default_layer["id"], project_id),
+            )
+            rows = conn.execute(
+                "SELECT * FROM project_layers WHERE project_id = ? "
+                "ORDER BY sort_order ASC, id ASC",
+                (project_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def create_layer(self, project_id: int, name: str) -> dict[str, Any]:
+        """Create a new layer at the top of a project.
+
+        Args:
+            project_id: The owning project's primary key.
+            name: Display name for the new layer.
+
+        Returns:
+            The created layer row.
+
+        Raises:
+            ValueError: If the name is empty.
+            sqlite3.IntegrityError: If the layer name already exists.
+        """
+        name = name.strip()
+        if not name:
+            raise ValueError("Layer name must not be empty.")
+
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order "
+                "FROM project_layers WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            cursor = conn.execute(
+                "INSERT INTO project_layers (project_id, name, sort_order) "
+                "VALUES (?, ?, ?)",
+                (project_id, name, int(row["next_order"])),
+            )
+            layer = conn.execute(
+                "SELECT * FROM project_layers WHERE id = ?",
+                (cursor.lastrowid,),
+            ).fetchone()
+        return dict(layer)
+
+    def get_layer_for_user(
+        self, layer_id: int, user_id: int
+    ) -> dict[str, Any] | None:
+        """Fetch a layer only if it belongs to a user's project.
+
+        Args:
+            layer_id: Layer primary key.
+            user_id: Owner ID used to enforce project isolation.
+
+        Returns:
+            Layer row, or ``None`` if it does not belong to the user.
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT project_layers.* FROM project_layers "
+                "JOIN projects ON projects.id = project_layers.project_id "
+                "WHERE project_layers.id = ? AND projects.user_id = ?",
+                (layer_id, user_id),
+            ).fetchone()
+        return dict(row) if row else None
+
     # -- image CRUD ----------------------------------------------------------
 
     def add_image(
         self,
         project_id: int,
         filename: str,
+        layer_id: int | None = None,
         pos_x: float = 0.0,
         pos_y: float = 0.0,
         scale: float = 1.0,
@@ -868,6 +1018,7 @@ class Database:
         native_width: int = 0,
         native_height: int = 0,
         loop_enabled: int = 1,
+        locked: int = 0,
     ) -> dict[str, Any]:
         """Insert a new image record for a project.
 
@@ -878,6 +1029,7 @@ class Database:
         Args:
             project_id: The owning project's primary key.
             filename: The image filename (basename only).
+            layer_id: Layer ID, or ``None`` to use the default layer.
             pos_x: Horizontal position on the canvas.
             pos_y: Vertical position on the canvas.
             scale: Scale factor (1.0 = original size).
@@ -886,18 +1038,22 @@ class Database:
             native_width: The image's original pixel width.
             native_height: The image's original pixel height.
             loop_enabled: Whether animated media should loop by default.
+            locked: Whether the image should be protected from edits.
 
         Returns:
             A dict of the newly created image row.
         """
+        if layer_id is None:
+            layer_id = int(self.ensure_default_layer(project_id)["id"])
+
         with self.connect() as conn:
             cursor = conn.execute(
                 "INSERT INTO images "
-                "(project_id, filename, pos_x, pos_y, scale, rotation, "
-                "z_index, native_width, native_height, loop_enabled) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (project_id, filename, pos_x, pos_y, scale, rotation,
-                 z_index, native_width, native_height, loop_enabled),
+                "(project_id, layer_id, filename, pos_x, pos_y, scale, rotation, "
+                "z_index, native_width, native_height, loop_enabled, locked) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (project_id, layer_id, filename, pos_x, pos_y, scale, rotation,
+                 z_index, native_width, native_height, loop_enabled, locked),
             )
             row = conn.execute(
                 "SELECT * FROM images WHERE id = ?", (cursor.lastrowid,)
@@ -955,8 +1111,11 @@ class Database:
         """
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM images WHERE project_id = ? "
-                "ORDER BY z_index ASC, id ASC",
+                "SELECT images.* FROM images "
+                "LEFT JOIN project_layers ON project_layers.id = images.layer_id "
+                "WHERE images.project_id = ? "
+                "ORDER BY COALESCE(project_layers.sort_order, 0) ASC, "
+                "images.z_index ASC, images.id ASC",
                 (project_id,),
             ).fetchall()
         return [dict(r) for r in rows]

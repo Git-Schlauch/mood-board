@@ -13,7 +13,8 @@ zero external dependencies.
 - **Animated media** — GIF and WebM playback loops by default and can be toggled per item
 - **Free arrangement** — move and resize images anywhere on an infinite pannable canvas
 - **Pan and zoom** — drag the empty canvas to move around and use the mouse wheel to zoom
-- **Z-order controls** — bring images forward or send them back with a floating action panel
+- **Layers and locks** — define project layers, move selected images between them, and lock images against accidental movement
+- **Z-order controls** — bring images forward or send them back inside their current layer
 - **Multiple projects** — create, switch between, and rename projects
 - **Login sessions** — users sign in before project and image data is served
 - **Browser user management** — admins can create users and reset passwords from the sidebar

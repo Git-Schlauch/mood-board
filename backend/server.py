@@ -90,6 +90,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_list_projects()
         elif request_path == "/api/images":
             self._handle_list_images()
+        elif request_path == "/api/layers":
+            self._handle_list_layers()
         elif request_path == "/api/users":
             self._handle_list_users()
         elif request_path.startswith("/projects/"):
@@ -110,6 +112,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             self._handle_open_project()
         elif request_path == "/api/projects":
             self._handle_create_project()
+        elif request_path == "/api/layers":
+            self._handle_create_layer()
         elif request_path == "/api/images/upload":
             self._handle_image_upload()
         elif request_path == "/api/images/import-url":
@@ -413,8 +417,45 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         by z_index then id.
         """
         project = self.db.get_or_create_current_project(self.current_user["id"])
+        self.db.list_layers(project["id"])
         images = self.db.list_images(project["id"])
         self._send_json(images)
+
+    def _handle_list_layers(self) -> None:
+        """Return all layers for the current project.
+
+        ``GET /api/layers``
+
+        Layers are ordered from bottom to top.  A default layer is created
+        automatically for legacy projects.
+        """
+        project = self.db.get_or_create_current_project(self.current_user["id"])
+        layers = self.db.list_layers(project["id"])
+        self._send_json(layers)
+
+    def _handle_create_layer(self) -> None:
+        """Create a new layer in the current project.
+
+        ``POST /api/layers``
+
+        Expects ``{"name": "<layer name>"}``.
+        """
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        name = str(body.get("name", ""))
+        project = self.db.get_or_create_current_project(self.current_user["id"])
+        try:
+            layer = self.db.create_layer(project["id"], name)
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=400)
+            return
+        except sqlite3.IntegrityError:
+            self._send_json({"error": "Layer name already exists"}, status=409)
+            return
+
+        self._send_json(layer, status=201)
 
     def _handle_image_upload(self) -> None:
         """Accept an image upload and save it to disk.
@@ -750,8 +791,9 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
 
         Expects a JSON body with ``{"image_id": <int>, ...fields}`` where
         the additional fields are any subset of ``pos_x``, ``pos_y``,
-        ``scale``, ``rotation``, ``z_index``, ``loop_enabled``.  Returns the
-        updated image record on success, or 404 if the image does not exist.
+        ``scale``, ``rotation``, ``z_index``, ``loop_enabled``, ``locked``,
+        or ``layer_id``.  Returns the updated image record on success, or 404
+        if the image does not exist.
         """
         body = self._read_json_body()
         if body is None:
@@ -772,6 +814,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
                 "rotation",
                 "z_index",
                 "loop_enabled",
+                "locked",
+                "layer_id",
             )
         }
         if not fields:
@@ -782,6 +826,14 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         if image is None:
             self._send_json({"error": "Image not found"}, status=404)
             return
+
+        if "layer_id" in fields:
+            layer = self.db.get_layer_for_user(
+                int(fields["layer_id"]), self.current_user["id"]
+            )
+            if layer is None or layer["project_id"] != image["project_id"]:
+                self._send_json({"error": "Layer not found"}, status=404)
+                return
 
         updated = self.db.update_image(int(image_id), **fields)
         if not updated:

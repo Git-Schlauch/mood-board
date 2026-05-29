@@ -35,6 +35,9 @@ class Sidebar {
         /** @type {Object|null} The currently loaded project. */
         this.currentProject = null;
 
+        /** @type {Array<Object>} Current project's layers. */
+        this._layers = [];
+
         /** @type {HTMLElement|null} The dialog overlay element. */
         this._dialogOverlay = null;
 
@@ -114,6 +117,28 @@ class Sidebar {
         this._logoutBtn.textContent = "Log out";
         this._content.appendChild(this._logoutBtn);
 
+        this._layerHeading = document.createElement("h3");
+        this._layerHeading.className = "sidebar__image-heading";
+        this._layerHeading.textContent = "Layers";
+        this._content.appendChild(this._layerHeading);
+
+        this._layerList = document.createElement("div");
+        this._layerList.className = "sidebar__layer-list";
+        this._content.appendChild(this._layerList);
+
+        this._newLayerRow = document.createElement("div");
+        this._newLayerRow.className = "sidebar__layer-create";
+        this._newLayerInput = document.createElement("input");
+        this._newLayerInput.type = "text";
+        this._newLayerInput.className = "sidebar__layer-input";
+        this._newLayerInput.placeholder = "New layer";
+        this._newLayerBtn = document.createElement("button");
+        this._newLayerBtn.className = "sidebar__layer-add";
+        this._newLayerBtn.textContent = "+";
+        this._newLayerRow.appendChild(this._newLayerInput);
+        this._newLayerRow.appendChild(this._newLayerBtn);
+        this._content.appendChild(this._newLayerRow);
+
         /* Image list heading */
         this._imageHeading = document.createElement("h3");
         this._imageHeading.className = "sidebar__image-heading";
@@ -148,6 +173,13 @@ class Sidebar {
         if (this._usersBtn) {
             this._usersBtn.addEventListener("click", () => this.openUserDialog());
         }
+        this._newLayerBtn.addEventListener("click", () => this._createLayer());
+        this._newLayerInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                this._createLayer();
+            }
+        });
         this._logoutBtn.addEventListener("click", () => {
             if (this._onLogout) {
                 this._onLogout();
@@ -544,6 +576,7 @@ class Sidebar {
         try {
             this.currentProject = await this.api.getCurrentProject();
             this._projectName.textContent = this.currentProject.name;
+            await this.refreshLayerList();
             this.refreshImageList();
             if (this._onProjectChange) {
                 this._onProjectChange();
@@ -551,6 +584,70 @@ class Sidebar {
         } catch (err) {
             console.error("Failed to load current project:", err);
             this._projectName.textContent = "(error)";
+        }
+    }
+
+    /* ------------------------------------------------------------------
+     *  Layer list
+     * ------------------------------------------------------------------ */
+
+    /**
+     * Refresh the layer list shown in the sidebar.
+     */
+    async refreshLayerList() {
+        try {
+            this._layers = await this.api.listLayers();
+            this._renderLayerList();
+        } catch (err) {
+            console.error("Failed to load layer list:", err);
+        }
+    }
+
+    /**
+     * Create a layer from the sidebar input.
+     *
+     * @private
+     */
+    async _createLayer() {
+        const name = this._newLayerInput.value.trim();
+        if (!name) {
+            return;
+        }
+
+        this._newLayerBtn.disabled = true;
+        try {
+            await this.api.createLayer(name);
+            this._newLayerInput.value = "";
+            await this.refreshLayerList();
+            if (this._canvas) {
+                await this._canvas.refreshLayers();
+            }
+            await this.refreshImageList();
+        } catch (err) {
+            console.error("Failed to create layer:", err);
+        } finally {
+            this._newLayerBtn.disabled = false;
+        }
+    }
+
+    /**
+     * Render the current layer list.
+     *
+     * @private
+     */
+    _renderLayerList() {
+        this._layerList.innerHTML = "";
+        for (const layer of this._layers) {
+            const row = document.createElement("div");
+            row.className = "sidebar__layer-row";
+            const name = document.createElement("span");
+            name.textContent = layer.name;
+            const order = document.createElement("span");
+            order.className = "sidebar__layer-order";
+            order.textContent = `#${layer.sort_order + 1}`;
+            row.appendChild(name);
+            row.appendChild(order);
+            this._layerList.appendChild(row);
         }
     }
 
@@ -644,9 +741,25 @@ class Sidebar {
         const h = info ? info.height : "?";
         const nw = record.native_width || (info ? info.naturalWidth : 0);
         const nh = record.native_height || (info ? info.naturalHeight : 0);
+        const layer = this._escapeHtml(info ? info.layerName : this._layerName(record.layer_id));
+        const locked = (info ? info.locked : Boolean(record.locked)) ? "yes" : "no";
         return `Position: ${x}, ${y}<br>` +
                `Size: ${w} &times; ${h}<br>` +
-               `Native: ${nw} &times; ${nh}`;
+               `Native: ${nw} &times; ${nh}<br>` +
+               `Layer: ${layer}<br>` +
+               `Locked: ${locked}`;
+    }
+
+    /**
+     * Return a layer name for display.
+     *
+     * @param {number|null} layerId - Layer ID.
+     * @returns {string} Layer name or fallback text.
+     * @private
+     */
+    _layerName(layerId) {
+        const layer = this._layers.find((entry) => entry.id === layerId);
+        return layer ? layer.name : "Layer";
     }
 
     /**
@@ -701,9 +814,28 @@ class Sidebar {
                 cell.innerHTML =
                     `Position: ${info.x}, ${info.y}<br>` +
                     `Size: ${info.width} &times; ${info.height}<br>` +
-                    `Native: ${nw} &times; ${nh}`;
+                    `Native: ${nw} &times; ${nh}<br>` +
+                    `Layer: ${this._escapeHtml(info.layerName)}<br>` +
+                    `Locked: ${info.locked ? "yes" : "no"}`;
             }
         }
+    }
+
+    /**
+     * Escape a string before inserting it into a detail row.
+     *
+     * @param {string} value - Raw display string.
+     * @returns {string} HTML-safe text.
+     * @private
+     */
+    _escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (char) => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            "\"": "&quot;",
+            "'": "&#39;",
+        }[char]));
     }
 
     /* ------------------------------------------------------------------
@@ -848,6 +980,7 @@ class Sidebar {
             this.currentProject = await this.api.openProject(projectId);
             this._projectName.textContent = this.currentProject.name;
             this.closeProjectDialog();
+            await this.refreshLayerList();
             this.refreshImageList();
             if (this._onProjectChange) {
                 this._onProjectChange();
@@ -872,6 +1005,7 @@ class Sidebar {
             this.currentProject = await this.api.createProject(name);
             this._projectName.textContent = this.currentProject.name;
             this.closeProjectDialog();
+            await this.refreshLayerList();
             this.refreshImageList();
             if (this._onProjectChange) {
                 this._onProjectChange();

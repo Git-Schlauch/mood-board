@@ -370,6 +370,59 @@ html, body {
     font-style: italic;
 }
 
+.sidebar__layer-list {
+    display: grid;
+    gap: 6px;
+}
+
+.sidebar__layer-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    background-color: #16213e;
+    border: 1px solid #2a2a4a;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.sidebar__layer-order {
+    color: #8a8aaa;
+    font-size: 11px;
+}
+
+.sidebar__layer-create {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+}
+
+.sidebar__layer-input {
+    min-width: 0;
+    flex: 1;
+    padding: 7px 8px;
+    background-color: #16213e;
+    color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.sidebar__layer-add {
+    width: 32px;
+    background-color: #0f3460;
+    color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.sidebar__layer-add:hover {
+    background-color: #154985;
+}
+
 /* ===================================================================
    Canvas action panel (z-order & delete)
    =================================================================== */
@@ -430,6 +483,17 @@ html, body {
     width: 1px;
     background-color: #3a3a5a;
     margin: 2px 1px;
+}
+
+.canvas-actions__layer-select {
+    max-width: 120px;
+    height: 26px;
+    padding: 0 6px;
+    background-color: #2a2a4a;
+    color: #e0e0e0;
+    border: 1px solid #3a3a5a;
+    border-radius: 3px;
+    font-size: 12px;
 }
 
 /* Canvas drag-over visual feedback */

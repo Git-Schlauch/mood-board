@@ -1,0 +1,20 @@
+Changed files:
+- backend/database.py: added project layer persistence, default layer creation, image layer assignment, image lock state, and a safer default-project fallback for new users.
+- backend/server.py: added layer list/create API routes and allowed image updates to persist layer_id and locked.
+- web/js/api.js: added layer list/create client calls.
+- web/js/canvas.js: added locked-image behavior, per-layer z-ordering, layer assignment selector, and lock toggle in the action panel.
+- web/js/sidebar.js: added a project layer list, new-layer creation, and layer/lock details in image metadata.
+- web/css/style.css: styled the sidebar layer controls and action-panel layer selector.
+- README.md and docs/backend/database.md: documented image locks, layers, and the new schema fields.
+
+Checks:
+- node --check web/js/canvas.js
+- node --check web/js/sidebar.js
+- node --check web/js/api.js
+- python3 -m py_compile backend/database.py backend/server.py
+- in-memory layer/lock database smoke test
+- in-memory default-project smoke test for new users
+- browser smoke test for sidebar layer rendering and console errors
+- git diff --check
+
+Agent: GPT-5 Codex

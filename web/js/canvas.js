@@ -54,6 +54,9 @@ class CanvasController {
          */
         this._items = [];
 
+        /** @type {Array<Object>} Project layers ordered bottom to top. */
+        this._layers = [];
+
         /** @type {number} Counter for generating temporary item IDs. */
         this._nextTempId = 1;
 
@@ -505,22 +508,32 @@ class CanvasController {
         ctx.lineDashOffset = dashLen / this._zoom;
         ctx.strokeRect(x, y, w, h);
 
-        /* Draw corner resize handles — filled white squares with black border. */
-        ctx.setLineDash([]);
-        const hs = 8 / this._zoom; /* handle visual size */
-        const half = hs / 2;
-        const corners = [
-            [x - half,     y - half],         /* top-left */
-            [x + w - half, y - half],         /* top-right */
-            [x - half,     y + h - half],     /* bottom-left */
-            [x + w - half, y + h - half],     /* bottom-right */
-        ];
-        for (const [cx, cy] of corners) {
+        if (!item.locked) {
+            /* Draw corner resize handles — filled white squares with black border. */
+            ctx.setLineDash([]);
+            const hs = 8 / this._zoom; /* handle visual size */
+            const half = hs / 2;
+            const corners = [
+                [x - half,     y - half],         /* top-left */
+                [x + w - half, y - half],         /* top-right */
+                [x - half,     y + h - half],     /* bottom-left */
+                [x + w - half, y + h - half],     /* bottom-right */
+            ];
+            for (const [cx, cy] of corners) {
+                ctx.fillStyle = "#ffffff";
+                ctx.fillRect(cx, cy, hs, hs);
+                ctx.strokeStyle = "#000000";
+                ctx.lineWidth = 1 / this._zoom;
+                ctx.strokeRect(cx, cy, hs, hs);
+            }
+        }
+
+        if (item.locked) {
+            ctx.fillStyle = "rgba(0, 0, 0, 0.75)";
+            ctx.fillRect(x, y, 24 / this._zoom, 18 / this._zoom);
             ctx.fillStyle = "#ffffff";
-            ctx.fillRect(cx, cy, hs, hs);
-            ctx.strokeStyle = "#000000";
-            ctx.lineWidth = 1 / this._zoom;
-            ctx.strokeRect(cx, cy, hs, hs);
+            ctx.font = `${12 / this._zoom}px sans-serif`;
+            ctx.fillText("lock", x + 3 / this._zoom, y + 13 / this._zoom);
         }
 
         ctx.restore();
@@ -581,7 +594,7 @@ class CanvasController {
 
         /* Check if a resize handle of the currently selected item was clicked. */
         const handleHit = this._hitTestHandle(x, y);
-        if (handleHit) {
+        if (handleHit && !this._selectedItem.locked) {
             event.preventDefault();
             const item = this._selectedItem;
             this._resizing = true;
@@ -605,6 +618,11 @@ class CanvasController {
             /* Prevent the browser from starting a native drag or text
                selection — without this, mousemove events get swallowed. */
             event.preventDefault();
+
+            if (hit.locked) {
+                this.canvas.style.cursor = "default";
+                return;
+            }
 
             this._dragging = true;
             this._dragOffsetX = x - hit.x;
@@ -654,12 +672,12 @@ class CanvasController {
 
                 /* Resize handle cursors take priority over grab cursor. */
                 const handle = this._hitTestHandle(x, y);
-                if (handle) {
+                if (handle && !this._selectedItem.locked) {
                     this.canvas.style.cursor =
                         (handle === "tl" || handle === "br") ? "nwse-resize" : "nesw-resize";
                 } else {
                     const hover = this._hitTest(x, y);
-                    this.canvas.style.cursor = hover ? "grab" : "grab";
+                    this.canvas.style.cursor = hover && hover.locked ? "default" : "grab";
                 }
             }
             return;
@@ -1120,6 +1138,9 @@ class CanvasController {
             loopEnabled: true,
             frozenFrame: null,
             img: null,
+            layerId: null,
+            zIndex: 0,
+            locked: false,
             imageRecord: null,
         };
 
@@ -1132,6 +1153,9 @@ class CanvasController {
                 item.imageRecord = record;
                 item.loopEnabled = this._recordLoopEnabled(record);
                 item.mediaKind = this._mediaKind(record);
+                item.layerId = record.layer_id;
+                item.zIndex = record.z_index || 0;
+                item.locked = Boolean(record.locked);
                 return this._loadMedia(record);
             })
             .then((media) => {
@@ -1155,6 +1179,7 @@ class CanvasController {
                 item.height = fitted.height;
                 item.id = item.imageRecord.id;
                 this._applyMediaPlayback(item);
+                this._sortItemsByLayerAndZ();
 
                 this._scheduleRender();
 
@@ -1205,6 +1230,9 @@ class CanvasController {
             loopEnabled: true,
             frozenFrame: null,
             img: null,
+            layerId: null,
+            zIndex: 0,
+            locked: false,
             imageRecord: null,
         };
 
@@ -1216,6 +1244,9 @@ class CanvasController {
             item.imageRecord = record;
             item.loopEnabled = this._recordLoopEnabled(record);
             item.mediaKind = this._mediaKind(record);
+            item.layerId = record.layer_id;
+            item.zIndex = record.z_index || 0;
+            item.locked = Boolean(record.locked);
             const media = await this._loadMedia(record);
             const natural = this._mediaNaturalSize(media);
             const fitted = this._fitImage(
@@ -1236,6 +1267,7 @@ class CanvasController {
             item.height = fitted.height;
             item.id = item.imageRecord.id;
             this._applyMediaPlayback(item);
+            this._sortItemsByLayerAndZ();
 
             this.api.updateImage(item.imageRecord.id, {
                 pos_x: item.x,
@@ -1506,6 +1538,25 @@ class CanvasController {
         });
         this._actionPanel.appendChild(this._loopBtn);
 
+        this._lockBtn = document.createElement("button");
+        this._lockBtn.className = "canvas-actions__btn canvas-actions__btn--lock";
+        this._lockBtn.textContent = "L";
+        this._lockBtn.title = "Lock image position";
+        this._lockBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this._toggleSelectedLock();
+        });
+        this._actionPanel.appendChild(this._lockBtn);
+
+        this._layerSelect = document.createElement("select");
+        this._layerSelect.className = "canvas-actions__layer-select";
+        this._layerSelect.title = "Move image to layer";
+        this._layerSelect.addEventListener("change", (e) => {
+            e.stopPropagation();
+            this._moveSelectedToLayer(parseInt(this._layerSelect.value, 10));
+        });
+        this._actionPanel.appendChild(this._layerSelect);
+
         /* Visual separator before the delete button. */
         const sep = document.createElement("div");
         sep.className = "canvas-actions__separator";
@@ -1583,6 +1634,21 @@ class CanvasController {
         this._loopBtn.title = this._selectedItem.loopEnabled
             ? "Turn continuous playback off"
             : "Turn continuous playback on";
+
+        if (this._lockBtn) {
+            this._lockBtn.classList.toggle(
+                "canvas-actions__btn--active",
+                Boolean(this._selectedItem.locked)
+            );
+            this._lockBtn.textContent = this._selectedItem.locked ? "U" : "L";
+            this._lockBtn.title = this._selectedItem.locked
+                ? "Unlock image position"
+                : "Lock image position";
+        }
+
+        if (this._layerSelect) {
+            this._syncLayerSelect();
+        }
     }
 
     /**
@@ -1788,12 +1854,13 @@ class CanvasController {
         const item = this._selectedItem;
         if (!item) return;
 
-        const idx = this._items.indexOf(item);
-        if (idx === -1 || idx === this._items.length - 1) return;
+        const layerItems = this._itemsForLayer(item.layerId);
+        const idx = layerItems.indexOf(item);
+        if (idx === -1 || idx === layerItems.length - 1) return;
 
-        this._items.splice(idx, 1);
-        this._items.push(item);
-        this._reassignZIndices();
+        item.zIndex = layerItems.length;
+        this._reassignZIndices(item.layerId);
+        this._sortItemsByLayerAndZ();
         this._scheduleRender();
     }
 
@@ -1808,13 +1875,14 @@ class CanvasController {
         const item = this._selectedItem;
         if (!item) return;
 
-        const idx = this._items.indexOf(item);
-        if (idx === -1 || idx === this._items.length - 1) return;
+        const layerItems = this._itemsForLayer(item.layerId);
+        const idx = layerItems.indexOf(item);
+        if (idx === -1 || idx === layerItems.length - 1) return;
 
-        /* Swap with the item above (next in array = drawn later). */
-        [this._items[idx], this._items[idx + 1]] =
-            [this._items[idx + 1], this._items[idx]];
-        this._reassignZIndices();
+        layerItems[idx].zIndex = idx + 1;
+        layerItems[idx + 1].zIndex = idx;
+        this._reassignZIndices(item.layerId);
+        this._sortItemsByLayerAndZ();
         this._scheduleRender();
     }
 
@@ -1829,13 +1897,14 @@ class CanvasController {
         const item = this._selectedItem;
         if (!item) return;
 
-        const idx = this._items.indexOf(item);
+        const layerItems = this._itemsForLayer(item.layerId);
+        const idx = layerItems.indexOf(item);
         if (idx <= 0) return;
 
-        /* Swap with the item below (previous in array = drawn earlier). */
-        [this._items[idx], this._items[idx - 1]] =
-            [this._items[idx - 1], this._items[idx]];
-        this._reassignZIndices();
+        layerItems[idx].zIndex = idx - 1;
+        layerItems[idx - 1].zIndex = idx;
+        this._reassignZIndices(item.layerId);
+        this._sortItemsByLayerAndZ();
         this._scheduleRender();
     }
 
@@ -1850,12 +1919,13 @@ class CanvasController {
         const item = this._selectedItem;
         if (!item) return;
 
-        const idx = this._items.indexOf(item);
+        const layerItems = this._itemsForLayer(item.layerId);
+        const idx = layerItems.indexOf(item);
         if (idx <= 0) return;
 
-        this._items.splice(idx, 1);
-        this._items.unshift(item);
-        this._reassignZIndices();
+        item.zIndex = -1;
+        this._reassignZIndices(item.layerId);
+        this._sortItemsByLayerAndZ();
         this._scheduleRender();
     }
 
@@ -1866,10 +1936,13 @@ class CanvasController {
      * onChange callback so the sidebar can refresh its image list.
      * @private
      */
-    _reassignZIndices() {
-        for (let i = 0; i < this._items.length; i++) {
-            const it = this._items[i];
+    _reassignZIndices(layerId = null) {
+        const items = layerId === null ? this._items : this._itemsForLayer(layerId);
+        items.sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+        for (let i = 0; i < items.length; i++) {
+            const it = items[i];
             if (it.imageRecord) {
+                it.zIndex = i;
                 it.imageRecord.z_index = i;
                 this.api.updateImage(it.imageRecord.id, { z_index: i })
                     .catch((err) => {
@@ -1951,6 +2024,124 @@ class CanvasController {
         return Boolean(item && (item.mediaKind === "gif" || item.mediaKind === "video"));
     }
 
+    /**
+     * Toggle whether the selected image can be moved or resized.
+     *
+     * @private
+     */
+    _toggleSelectedLock() {
+        const item = this._selectedItem;
+        if (!item || !item.imageRecord) {
+            return;
+        }
+
+        item.locked = !item.locked;
+        item.imageRecord.locked = item.locked ? 1 : 0;
+        this.api.updateImage(item.imageRecord.id, {
+            locked: item.imageRecord.locked,
+        }).catch((err) => {
+            console.error("Failed to persist image lock:", err);
+        });
+        this._notifySelectionChange();
+        this._updateActionPanelButtons();
+        this._scheduleRender();
+    }
+
+    /**
+     * Move the selected image to a different layer.
+     *
+     * @param {number} layerId - Target layer ID.
+     * @private
+     */
+    _moveSelectedToLayer(layerId) {
+        const item = this._selectedItem;
+        if (!item || !item.imageRecord || !Number.isFinite(layerId)) {
+            return;
+        }
+        const targetLayer = this._layers.find((layer) => layer.id === layerId);
+        if (!targetLayer || item.layerId === layerId) {
+            return;
+        }
+
+        const oldLayerId = item.layerId;
+        const targetItems = this._itemsForLayer(layerId);
+        item.layerId = layerId;
+        item.zIndex = targetItems.length;
+        item.imageRecord.layer_id = layerId;
+        item.imageRecord.z_index = item.zIndex;
+
+        this._reassignZIndices(oldLayerId);
+        this._reassignZIndices(layerId);
+        this._sortItemsByLayerAndZ();
+        this.api.updateImage(item.imageRecord.id, {
+            layer_id: layerId,
+            z_index: item.zIndex,
+        }).catch((err) => {
+            console.error("Failed to move image to layer:", err);
+        });
+        this._notifySelectionChange();
+        this._scheduleRender();
+        if (this._onChange) {
+            this._onChange();
+        }
+    }
+
+    /**
+     * Rebuild the selected-image layer dropdown.
+     *
+     * @private
+     */
+    _syncLayerSelect() {
+        if (!this._layerSelect) {
+            return;
+        }
+        const currentValue = this._selectedItem ? String(this._selectedItem.layerId) : "";
+        this._layerSelect.replaceChildren();
+        for (const layer of this._layers) {
+            const option = document.createElement("option");
+            option.value = String(layer.id);
+            option.textContent = layer.name;
+            option.selected = option.value === currentValue;
+            this._layerSelect.appendChild(option);
+        }
+        this._layerSelect.disabled = this._layers.length === 0;
+    }
+
+    /**
+     * Return canvas items assigned to one layer, ordered bottom to top.
+     *
+     * @param {number|null} layerId - Layer ID to match.
+     * @returns {Array<Object>} Matching image items.
+     * @private
+     */
+    _itemsForLayer(layerId) {
+        return this._items
+            .filter((item) => item.type === "image" && item.layerId === layerId)
+            .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0));
+    }
+
+    /**
+     * Sort loaded canvas items by layer order and z-index.
+     *
+     * @private
+     */
+    _sortItemsByLayerAndZ() {
+        const layerOrder = new Map(
+            this._layers.map((layer, index) => [layer.id, layer.sort_order ?? index])
+        );
+        this._items.sort((a, b) => {
+            if (a.type !== b.type) {
+                return a.type === "placeholder" ? 1 : -1;
+            }
+            const layerA = layerOrder.has(a.layerId) ? layerOrder.get(a.layerId) : 0;
+            const layerB = layerOrder.has(b.layerId) ? layerOrder.get(b.layerId) : 0;
+            if (layerA !== layerB) {
+                return layerA - layerB;
+            }
+            return (a.zIndex || 0) - (b.zIndex || 0);
+        });
+    }
+
     /* ------------------------------------------------------------------
      *  Selection notification & query helpers
      * ------------------------------------------------------------------ */
@@ -1980,6 +2171,9 @@ class CanvasController {
             height: Math.round(item.height),
             naturalWidth: item.media ? this._mediaNaturalSize(item.media).width : 0,
             naturalHeight: item.media ? this._mediaNaturalSize(item.media).height : 0,
+            layerId: item.layerId,
+            layerName: this._layerName(item.layerId),
+            locked: Boolean(item.locked),
         });
     }
 
@@ -2003,10 +2197,25 @@ class CanvasController {
                     height: Math.round(item.height),
                     naturalWidth: item.media ? this._mediaNaturalSize(item.media).width : 0,
                     naturalHeight: item.media ? this._mediaNaturalSize(item.media).height : 0,
+                    layerId: item.layerId,
+                    layerName: this._layerName(item.layerId),
+                    locked: Boolean(item.locked),
                 });
             }
         }
         return map;
+    }
+
+    /**
+     * Return a layer display name for an ID.
+     *
+     * @param {number|null} layerId - Layer ID.
+     * @returns {string} Layer name or fallback text.
+     * @private
+     */
+    _layerName(layerId) {
+        const layer = this._layers.find((entry) => entry.id === layerId);
+        return layer ? layer.name : "Layer";
     }
 
     /**
@@ -2066,6 +2275,19 @@ class CanvasController {
     }
 
     /**
+     * Refresh the current project's layer list from the backend.
+     *
+     * @returns {Promise<Array<Object>>} Layers ordered bottom to top.
+     */
+    async refreshLayers() {
+        this._layers = await this.api.listLayers();
+        this._syncLayerSelect();
+        this._sortItemsByLayerAndZ();
+        this._scheduleRender();
+        return this._layers;
+    }
+
+    /**
      * Load all images for the current project from the database.
      *
      * Fetches the image list from the API and creates canvas items for
@@ -2075,6 +2297,7 @@ class CanvasController {
     async loadImages() {
         let images;
         try {
+            await this.refreshLayers();
             images = await this.api.listImages();
         } catch (err) {
             console.error("Failed to load images:", err);
@@ -2094,6 +2317,9 @@ class CanvasController {
                 loopEnabled: this._recordLoopEnabled(record),
                 frozenFrame: null,
                 img: null,
+                layerId: record.layer_id,
+                zIndex: record.z_index || 0,
+                locked: Boolean(record.locked),
                 imageRecord: record,
             };
 
@@ -2142,6 +2368,7 @@ class CanvasController {
                     }
 
                     this._applyMediaPlayback(item);
+                    this._sortItemsByLayerAndZ();
                     this._scheduleRender();
                 })
                 .catch((err) => {

@@ -145,6 +145,31 @@ class ApiClient {
     }
 
     /**
+     * Fetch all layers for the current project.
+     *
+     * @returns {Promise<Array<Object>>} Layers ordered bottom to top.
+     */
+    async listLayers() {
+        const response = await fetch("/api/layers");
+        return this._handleResponse(response);
+    }
+
+    /**
+     * Create a layer in the current project.
+     *
+     * @param {string} name - Display name for the new layer.
+     * @returns {Promise<Object>} Created layer record.
+     */
+    async createLayer(name) {
+        const response = await fetch("/api/layers", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name }),
+        });
+        return this._handleResponse(response);
+    }
+
+    /**
      * Set a project as the current (active) project.
      *
      * @param {number} projectId - The ID of the project to open.

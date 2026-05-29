@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `backend/database.py` module provides all persistent storage for the mood board application. It uses Python's built-in `sqlite3` module with a single database file at `projects/mood_board.db`. Uploaded images are stored on the filesystem under `projects/<project-name>/`; only metadata (position, scale, rotation, draw order, native dimensions, and ownership) is kept in the database.
+The `backend/database.py` module provides all persistent storage for the mood board application. It uses Python's built-in `sqlite3` module with a single database file at `projects/mood_board.db`. Uploaded images are stored on the filesystem under `projects/<project-name>/`; only metadata (position, scale, rotation, layer placement, draw order, lock state, native dimensions, and ownership) is kept in the database.
 
 ## Schema
 
@@ -44,12 +44,24 @@ The `backend/database.py` module provides all persistent storage for the mood bo
 | `key`     | TEXT    | Setting key                   |
 | `value`   | TEXT    | Setting value                 |
 
+### `project_layers` table
+
+| Column       | Type    | Notes                            |
+|--------------|---------|----------------------------------|
+| `id`         | INTEGER | Primary key, autoincrement       |
+| `project_id` | INTEGER | FK -> `projects.id`, layer owner |
+| `name`       | TEXT    | Unique per project               |
+| `sort_order` | INTEGER | Layer order, bottom to top       |
+| `created_at` | TEXT    | ISO 8601 timestamp               |
+| `updated_at` | TEXT    | ISO 8601 timestamp               |
+
 ### `images` table
 
 | Column       | Type    | Notes                                    |
 |--------------|---------|------------------------------------------|
 | `id`         | INTEGER | Primary key, autoincrement               |
 | `project_id` | INTEGER | FK → `projects.id`, cascade delete       |
+| `layer_id`   | INTEGER | FK -> `project_layers.id`, image layer   |
 | `filename`   | TEXT    | Basename only (e.g. `photo.png`)         |
 | `pos_x`      | REAL    | Horizontal canvas position               |
 | `pos_y`      | REAL    | Vertical canvas position                 |
@@ -59,6 +71,7 @@ The `backend/database.py` module provides all persistent storage for the mood bo
 | `native_width` | INTEGER | Original image width                   |
 | `native_height` | INTEGER | Original image height                 |
 | `loop_enabled` | INTEGER | Animated GIF/WebM playback flag       |
+| `locked`     | INTEGER | Prevents accidental move/resize actions  |
 | `created_at` | TEXT    | ISO 8601 timestamp                       |
 | `updated_at` | TEXT    | ISO 8601 timestamp                       |
 
@@ -80,9 +93,10 @@ user = db.create_or_update_user("admin", "long-password", is_admin=True)
 
 # Create a project
 project = db.create_project("my-mood-board", user_id=user["id"])
+layer = db.create_layer(project["id"], "References")
 
 # Add an image
-image = db.add_image(project["id"], "photo.png", pos_x=100, pos_y=200)
+image = db.add_image(project["id"], "photo.png", layer_id=layer["id"], pos_x=100, pos_y=200)
 
 # Update image position
 db.update_image(image["id"], pos_x=150, pos_y=250, rotation=45.0)
