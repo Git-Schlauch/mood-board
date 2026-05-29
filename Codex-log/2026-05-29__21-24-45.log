@@ -1,0 +1,14 @@
+Changed files:
+- backend/server.py: added MP4 MIME/signature detection for local uploads and URL imports.
+- web/js/api.js: treated MP4 as video when reading native dimensions before upload.
+- web/js/canvas.js: accepted MP4 files, loaded them through the same video playback path as WebM, and updated video wording.
+- README.md and docs/security.md: documented MP4 upload/import/playback support.
+
+Checks:
+- node --check web/js/canvas.js
+- node --check web/js/api.js
+- python3 -m py_compile backend/server.py backend/database.py
+- git diff --check
+- MP4 signature/import helper smoke test
+
+Agent: GPT-5 Codex

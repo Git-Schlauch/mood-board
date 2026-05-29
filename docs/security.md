@@ -39,7 +39,7 @@ prints it to the server log.
 
 ## Uploads
 
-Uploads are accepted only for PNG, JPEG, GIF, WebP, and WebM media payloads.
+Uploads are accepted only for PNG, JPEG, GIF, WebP, WebM, and MP4 media payloads.
 SVG and HTML uploads are rejected to avoid serving active content from the
 projects directory.
 

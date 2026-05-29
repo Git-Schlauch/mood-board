@@ -219,7 +219,7 @@ class ApiClient {
     }
 
     /**
-     * Upload an image or WebM file to the current project.
+     * Upload an image, WebM, or MP4 file to the current project.
      *
      * Extracts the native pixel dimensions by loading the file into a
      * temporary Image element, then streams the original binary file to the
@@ -247,7 +247,7 @@ class ApiClient {
     }
 
     /**
-     * Import an image or WebM file from a remote URL.
+     * Import an image, WebM, or MP4 file from a remote URL.
      *
      * The backend downloads and validates the URL server-side, then stores the
      * resulting media file in the current project just like a normal upload.
@@ -271,15 +271,30 @@ class ApiClient {
      * enough metadata, reads its natural dimensions, then revokes the URL to
      * free memory.
      *
-     * @param {File} file - The image or WebM file.
+     * @param {File} file - The image, WebM, or MP4 file.
      * @returns {Promise<{width: number, height: number}>} Native pixel dimensions.
      * @private
      */
     _getNativeMediaDimensions(file) {
-        if (file.type === "video/webm" || file.name.toLowerCase().endsWith(".webm")) {
+        if (this._isVideoFile(file)) {
             return this._getNativeVideoDimensions(file);
         }
         return this._getNativeImageDimensions(file);
+    }
+
+    /**
+     * Return whether a File is a supported video upload.
+     *
+     * @param {File} file - The media file.
+     * @returns {boolean} ``true`` for WebM and MP4 files.
+     * @private
+     */
+    _isVideoFile(file) {
+        const name = file.name.toLowerCase();
+        return file.type === "video/webm" ||
+            file.type === "video/mp4" ||
+            name.endsWith(".webm") ||
+            name.endsWith(".mp4");
     }
 
     /**
@@ -308,9 +323,9 @@ class ApiClient {
     }
 
     /**
-     * Load a WebM File to read its native video dimensions.
+     * Load a video File to read its native dimensions.
      *
-     * @param {File} file - The WebM file.
+     * @param {File} file - The video file.
      * @returns {Promise<{width: number, height: number}>} Native pixel dimensions.
      * @private
      */

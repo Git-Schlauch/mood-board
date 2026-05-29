@@ -8,9 +8,9 @@ zero external dependencies.
 ## Features
 
 - **Drag-and-drop upload** — drop images onto the canvas to add them to a project
-- **Upload button** — add images and WebM clips through a file picker when drag-and-drop is awkward
-- **URL import** — optionally pull PNG, JPEG, GIF, WebP, or WebM media from a direct HTTP(S) URL
-- **Animated media** — GIF and WebM playback loops by default and can be toggled per item
+- **Upload button** — add images, WebM clips, and MP4 clips through a file picker when drag-and-drop is awkward
+- **URL import** — optionally pull PNG, JPEG, GIF, WebP, WebM, or MP4 media from a direct HTTP(S) URL
+- **Animated media** — GIF, WebM, and MP4 playback loops by default and can be toggled per item
 - **Free arrangement** — move and resize images anywhere on an infinite pannable canvas
 - **Pan and zoom** — drag the empty canvas to move around and use the mouse wheel to zoom
 - **Layers and locks** — define project layers, move selected images between them, and lock images against accidental movement
@@ -112,7 +112,7 @@ Built with plain HTML, CSS, and JavaScript — no frameworks, no build step. The
 has three main components:
 
 - **Canvas** (`web/js/canvas.js`) — renders static images on an HTML5 canvas and
-  uses a DOM media layer for live GIF/WebM playback, pan/zoom, drag-to-move,
+  uses a DOM media layer for live GIF/video playback, pan/zoom, drag-to-move,
   resize handles, and selection.
 - **Sidebar** (`web/js/sidebar.js`) — collapsible overlay listing uploaded images with
   metadata, a project name field, and a project-switching dialog.

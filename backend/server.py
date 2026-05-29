@@ -525,7 +525,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         )
 
     def _handle_image_url_import(self) -> None:
-        """Import an image or WebM file from a remote HTTP(S) URL.
+        """Import an image, WebM, or MP4 file from a remote HTTP(S) URL.
 
         ``POST /api/images/import-url``
 
@@ -689,6 +689,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             "image/gif": ".gif",
             "image/webp": ".webp",
             "video/webm": ".webm",
+            "video/mp4": ".mp4",
         }
         if content_type in content_type_map:
             return content_type_map[content_type]
@@ -702,6 +703,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             return ".webp"
         if file_bytes.startswith(b"\x1a\x45\xdf\xa3"):
             return ".webm"
+        if MoodBoardRequestHandler._looks_like_mp4(file_bytes):
+            return ".mp4"
         return None
 
     def _save_uploaded_image(
@@ -725,7 +728,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             return
         if not self._is_supported_image_upload(filename, file_bytes):
             self._send_json(
-                {"error": "Only PNG, JPEG, GIF, WebP, and WebM files are supported"},
+                {"error": "Only PNG, JPEG, GIF, WebP, WebM, and MP4 files are supported"},
                 status=400,
             )
             return
@@ -925,6 +928,8 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
         if content_type is None:
             if filename.lower().endswith(".webm"):
                 content_type = "video/webm"
+            elif filename.lower().endswith(".mp4"):
+                content_type = "video/mp4"
             else:
                 content_type = "application/octet-stream"
 
@@ -1117,7 +1122,7 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             file_bytes: Decoded file content.
 
         Returns:
-            ``True`` for PNG, JPEG, GIF, WebP, or WebM uploads.
+            ``True`` for PNG, JPEG, GIF, WebP, WebM, or MP4 uploads.
         """
         ext = os.path.splitext(filename)[1].lower()
         signatures = {
@@ -1130,7 +1135,29 @@ class MoodBoardRequestHandler(SimpleHTTPRequestHandler):
             return file_bytes.startswith(b"RIFF") and file_bytes[8:12] == b"WEBP"
         if ext == ".webm":
             return file_bytes.startswith(b"\x1a\x45\xdf\xa3")
+        if ext == ".mp4":
+            return MoodBoardRequestHandler._looks_like_mp4(file_bytes)
         return any(file_bytes.startswith(signature) for signature in signatures.get(ext, ()))
+
+    @staticmethod
+    def _looks_like_mp4(file_bytes: bytes) -> bool:
+        """Return whether bytes look like an MP4/ISO-BMFF container.
+
+        Args:
+            file_bytes: Candidate media bytes.
+
+        Returns:
+            ``True`` when an ``ftyp`` box is present with a common MP4 brand.
+        """
+        if len(file_bytes) < 12 or file_bytes[4:8] != b"ftyp":
+            return False
+        brand = file_bytes[8:12]
+        compatible = file_bytes[16:64]
+        brands = (
+            b"isom", b"iso2", b"iso4", b"iso5", b"iso6",
+            b"mp41", b"mp42", b"avc1", b"M4V ", b"MSNV",
+        )
+        return brand in brands or any(candidate in compatible for candidate in brands)
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):

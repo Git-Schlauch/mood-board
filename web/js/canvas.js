@@ -159,7 +159,7 @@ class CanvasController {
     }
 
     /**
-     * Build the DOM media layer used for live animated GIF/WebM playback.
+     * Build the DOM media layer used for live animated GIF/video playback.
      *
      * Canvas drawImage does not reliably advance GIF frames in all browsers,
      * so animated media is painted by the browser on an overlay while the
@@ -311,7 +311,7 @@ class CanvasController {
      * Return the drawable media source for an item.
      *
      * Animated GIFs can be frozen by drawing a captured canvas snapshot.
-     * WebM videos draw their HTMLVideoElement while playback is enabled and a
+     * Videos draw their HTMLVideoElement while playback is enabled and a
      * snapshot when playback is disabled.
      *
      * @param {Object} item - Canvas item to draw.
@@ -367,7 +367,7 @@ class CanvasController {
     /**
      * Return whether an item should be displayed by the DOM overlay.
      *
-     * Animated GIFs and active WebM videos are rendered as regular browser
+     * Animated GIFs and active videos are rendered as regular browser
      * media elements so they animate smoothly even when canvas drawImage would
      * otherwise show only a static frame.
      *
@@ -432,7 +432,7 @@ class CanvasController {
                 media.playsInline = true;
                 if (media.paused) {
                     media.play().catch((err) => {
-                        console.error("Failed to start WebM playback:", err);
+                        console.error("Failed to start video playback:", err);
                     });
                 }
             }
@@ -1098,14 +1098,16 @@ class CanvasController {
      * Return whether a file can be uploaded to the mood board.
      *
      * @param {File} file - Candidate upload file.
-     * @returns {boolean} ``true`` for supported images and WebM videos.
+     * @returns {boolean} ``true`` for supported images, WebM, and MP4 videos.
      * @private
      */
     _isSupportedUploadFile(file) {
         const name = file.name.toLowerCase();
         return file.type.startsWith("image/") ||
             file.type === "video/webm" ||
-            name.endsWith(".webm");
+            file.type === "video/mp4" ||
+            name.endsWith(".webm") ||
+            name.endsWith(".mp4");
     }
 
     /**
@@ -1117,7 +1119,7 @@ class CanvasController {
      * 4. Fit the image into the placeholder bounds (aspect ratio preserved).
      * 5. Persist the computed position back to the database.
      *
-     * @param {File} file - The image or WebM file to upload.
+     * @param {File} file - The image, WebM, or MP4 file to upload.
      * @param {number} dropX - X position of the drop in canvas coordinates.
      * @param {number} dropY - Y position of the drop in canvas coordinates.
      * @private
@@ -1334,7 +1336,7 @@ class CanvasController {
     }
 
     /**
-     * Load a WebM video from the server given an image database record.
+     * Load a video from the server given an image database record.
      *
      * @param {Object} record - The image database record.
      * @returns {Promise<HTMLVideoElement>} The loaded video element.
@@ -1366,7 +1368,7 @@ class CanvasController {
      */
     _mediaKind(record) {
         const filename = (record.filename || "").toLowerCase();
-        if (filename.endsWith(".webm")) {
+        if (filename.endsWith(".webm") || filename.endsWith(".mp4")) {
             return "video";
         }
         if (filename.endsWith(".gif")) {
@@ -1403,7 +1405,7 @@ class CanvasController {
     /**
      * Apply the loop/playback state to loaded animated media.
      *
-     * WebM videos are played or paused directly.  GIFs cannot be reliably
+     * Videos are played or paused directly.  GIFs cannot be reliably
      * paused by browsers, so the off state uses a captured canvas frame.
      *
      * @param {Object} item - Canvas item with loaded media.
@@ -1424,7 +1426,7 @@ class CanvasController {
         if (item.loopEnabled) {
             item.media.muted = true;
             item.media.play().catch((err) => {
-                console.error("Failed to start WebM playback:", err);
+                console.error("Failed to start video playback:", err);
             });
         } else {
             item.media.pause();
@@ -1662,7 +1664,7 @@ class CanvasController {
 
         this._fileInput = document.createElement("input");
         this._fileInput.type = "file";
-        this._fileInput.accept = "image/png,image/jpeg,image/gif,image/webp,video/webm";
+        this._fileInput.accept = "image/png,image/jpeg,image/gif,image/webp,video/webm,video/mp4";
         this._fileInput.multiple = true;
         this._fileInput.className = "canvas-toolbar__file";
 
@@ -1988,7 +1990,7 @@ class CanvasController {
     /**
      * Toggle continuous playback for the selected animated item.
      *
-     * GIFs and WebM videos default to enabled playback.  Turning playback off
+     * GIFs and videos default to enabled playback.  Turning playback off
      * freezes the current canvas frame and persists the choice.
      * @private
      */
@@ -2017,7 +2019,7 @@ class CanvasController {
      * Return whether an item supports continuous playback toggling.
      *
      * @param {Object|null} item - Canvas item to inspect.
-     * @returns {boolean} ``true`` for GIF and WebM items.
+     * @returns {boolean} ``true`` for GIF and video items.
      * @private
      */
     _isLoopControllable(item) {
