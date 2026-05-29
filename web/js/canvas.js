@@ -129,6 +129,12 @@ class CanvasController {
         /** @type {HTMLElement|null} URL import dialog overlay. */
         this._urlImportDialog = null;
 
+        /** @type {HTMLElement|null} Large media preview overlay. */
+        this._previewOverlay = null;
+
+        /** @type {Function|null} Escape-key handler for the preview overlay. */
+        this._previewKeyHandler = null;
+
         this._syncCanvasSize();
         this._buildMediaLayer();
         this._buildActionPanel();
@@ -555,6 +561,7 @@ class CanvasController {
      */
     _bindMouseEvents() {
         this.canvas.addEventListener("mousedown", (e) => this._onMouseDown(e));
+        this.canvas.addEventListener("dblclick", (e) => this._onDoubleClick(e));
 
         /* Bind mousemove and mouseup on the window so dragging continues
            even when the cursor leaves the canvas boundaries. */
@@ -635,6 +642,34 @@ class CanvasController {
             this._lastPanY = canvasPoint.y;
             this.canvas.style.cursor = "grabbing";
         }
+    }
+
+    /**
+     * Handle double-click: open a large preview of the clicked item.
+     *
+     * The preview is a separate overlay and does not mutate item position,
+     * size, layer, z-order, or lock state.
+     *
+     * @param {MouseEvent} event - The native double-click event.
+     * @private
+     */
+    _onDoubleClick(event) {
+        if (event.button !== 0) {
+            return;
+        }
+
+        const canvasPoint = this._canvasPoint(event);
+        const { x, y } = this._canvasToWorld(canvasPoint.x, canvasPoint.y);
+        const hit = this._hitTest(x, y);
+        if (!hit || !hit.imageRecord) {
+            return;
+        }
+
+        event.preventDefault();
+        this._selectedItem = hit;
+        this._notifySelectionChange();
+        this._openPreview(hit);
+        this._scheduleRender();
     }
 
     /**
@@ -1328,10 +1363,7 @@ class CanvasController {
             img.onload = () => resolve(img);
             img.onerror = () => reject(new Error(`Failed to load image: ${record.filename}`));
 
-            const projectName = this._getProjectName
-                ? this._getProjectName()
-                : "Untitled Project";
-            img.src = `/projects/${encodeURIComponent(projectName)}/${encodeURIComponent(record.filename)}`;
+            img.src = this._mediaUrl(record);
         });
     }
 
@@ -1351,12 +1383,23 @@ class CanvasController {
             video.onloadeddata = () => resolve(video);
             video.onerror = () => reject(new Error(`Failed to load video: ${record.filename}`));
 
-            const projectName = this._getProjectName
-                ? this._getProjectName()
-                : "Untitled Project";
-            video.src = `/projects/${encodeURIComponent(projectName)}/${encodeURIComponent(record.filename)}`;
+            video.src = this._mediaUrl(record);
             video.load();
         });
+    }
+
+    /**
+     * Build the same-origin URL for a stored media record.
+     *
+     * @param {Object} record - Image database record.
+     * @returns {string} URL path to the stored file.
+     * @private
+     */
+    _mediaUrl(record) {
+        const projectName = this._getProjectName
+            ? this._getProjectName()
+            : "Untitled Project";
+        return `/projects/${encodeURIComponent(projectName)}/${encodeURIComponent(record.filename)}`;
     }
 
     /**
@@ -1400,6 +1443,107 @@ class CanvasController {
             width: media.videoWidth || media.naturalWidth || 1,
             height: media.videoHeight || media.naturalHeight || 1,
         };
+    }
+
+    /**
+     * Open a large, temporary preview for a canvas item.
+     *
+     * The preview uses a fresh media element so the canvas item remains exactly
+     * where it was.  Double-clicking the preview, or pressing Escape, closes it.
+     *
+     * @param {Object} item - Loaded canvas item to preview.
+     * @private
+     */
+    _openPreview(item) {
+        this._closePreview();
+
+        const overlay = document.createElement("div");
+        overlay.className = "canvas-preview";
+        overlay.setAttribute("role", "dialog");
+        overlay.setAttribute("aria-label", "Media preview");
+        overlay.title = "Double-click to close";
+
+        const frame = document.createElement("div");
+        frame.className = "canvas-preview__frame";
+
+        const media = this._buildPreviewMedia(item);
+        frame.appendChild(media);
+
+        const caption = document.createElement("div");
+        caption.className = "canvas-preview__caption";
+        caption.textContent = item.imageRecord.filename;
+        frame.appendChild(caption);
+
+        overlay.appendChild(frame);
+        overlay.addEventListener("dblclick", (event) => {
+            event.preventDefault();
+            this._closePreview();
+        });
+
+        this._previewKeyHandler = (event) => {
+            if (event.key === "Escape") {
+                this._closePreview();
+            }
+        };
+        window.addEventListener("keydown", this._previewKeyHandler);
+        document.body.appendChild(overlay);
+        this._previewOverlay = overlay;
+    }
+
+    /**
+     * Build an image or video element for the large preview overlay.
+     *
+     * @param {Object} item - Canvas item being previewed.
+     * @returns {HTMLImageElement|HTMLVideoElement} Preview media element.
+     * @private
+     */
+    _buildPreviewMedia(item) {
+        const src = this._mediaUrl(item.imageRecord);
+        if (item.mediaKind === "video") {
+            const video = document.createElement("video");
+            video.className = "canvas-preview__media";
+            video.src = src;
+            video.loop = item.loopEnabled;
+            video.muted = true;
+            video.autoplay = item.loopEnabled;
+            video.playsInline = true;
+            video.preload = "auto";
+            video.addEventListener("loadeddata", () => {
+                if (item.loopEnabled) {
+                    video.play().catch((err) => {
+                        console.error("Failed to start preview video playback:", err);
+                    });
+                }
+            });
+            return video;
+        }
+
+        const img = new Image();
+        img.className = "canvas-preview__media";
+        img.alt = item.imageRecord.filename;
+        img.src = src;
+        return img;
+    }
+
+    /**
+     * Close the large media preview if it is open.
+     *
+     * @private
+     */
+    _closePreview() {
+        if (this._previewKeyHandler) {
+            window.removeEventListener("keydown", this._previewKeyHandler);
+            this._previewKeyHandler = null;
+        }
+        if (!this._previewOverlay) {
+            return;
+        }
+        const video = this._previewOverlay.querySelector("video");
+        if (video) {
+            video.pause();
+        }
+        this._previewOverlay.remove();
+        this._previewOverlay = null;
     }
 
     /**
@@ -2262,6 +2406,7 @@ class CanvasController {
      * loading the new project's images.
      */
     clear() {
+        this._closePreview();
         this._clearDomMediaLayer();
         this._items = [];
         this._selectedItem = null;

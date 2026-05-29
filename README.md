@@ -11,6 +11,7 @@ zero external dependencies.
 - **Upload button** — add images, WebM clips, and MP4 clips through a file picker when drag-and-drop is awkward
 - **URL import** — optionally pull PNG, JPEG, GIF, WebP, WebM, or MP4 media from a direct HTTP(S) URL
 - **Animated media** — GIF, WebM, and MP4 playback loops by default and can be toggled per item
+- **Large preview** — double-click any canvas media item to inspect it large, then double-click the preview to close it
 - **Free arrangement** — move and resize images anywhere on an infinite pannable canvas
 - **Pan and zoom** — drag the empty canvas to move around and use the mouse wheel to zoom
 - **Layers and locks** — define project layers, move selected images between them, and lock images against accidental movement

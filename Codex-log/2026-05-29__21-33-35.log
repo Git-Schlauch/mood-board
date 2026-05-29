@@ -1,0 +1,11 @@
+Changed files:
+- web/js/canvas.js: added double-click media preview overlay for images, GIFs, WebM, and MP4 without changing canvas item state.
+- web/css/style.css: styled the large preview overlay, media sizing, and caption.
+- README.md: documented the double-click preview feature.
+
+Checks:
+- node --check web/js/canvas.js
+- git diff --check
+- browser smoke test for app load and console errors
+
+Agent: GPT-5 Codex
